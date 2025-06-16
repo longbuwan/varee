@@ -5,7 +5,8 @@ from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 from datetime import datetime
-import openai
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
 from app.configs import Configs
 
@@ -13,53 +14,78 @@ router = APIRouter(tags=["Main"], prefix="/message")
 
 cfg = Configs()
 
-# Set your OpenAI API key
-openai.api_key = cfg.OPENAI_API_KEY  # Make sure you add this key to your config
+line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)
 
-line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)  # LINE Channel access token
-handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)  # LINE Channel secret
+# Load Typhoon2 model and tokenizer once (assumes 7B-chat model)
+print("Loading Typhoon2 model... This may take a while.")
+tokenizer = AutoTokenizer.from_pretrained("scb10x/typhoon2-7b-chat")
+model = AutoModelForCausalLM.from_pretrained("scb10x/typhoon2-7b-chat", torch_dtype=torch.float16, device_map="auto")
+model.eval()
+print("Typhoon2 model loaded.")
 
 
 @router.post("")
 async def multimodal_demo(request: Request):
     """
-    Line Webhook endpoint for receiving messages from the LINE Messaging API and processing them using OpenAI GPT.
+    Line Webhook endpoint for receiving messages from the LINE Messaging API and processing them using Typhoon2 LLM.
     """
-    signature = request.headers["X-Line-Signature"]
+    signature = request.headers.get("X-Line-Signature", "")
     body = await request.body()
+
     try:
         handler.handle(body.decode("UTF-8"), signature)
     except InvalidSignatureError:
         print("Invalid signature. Please check your channel access token or channel secret.")
+        return "Invalid signature", 400
     return "OK"
 
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
-    # session ID (optional)
     now = datetime.now()
     session_id = f"{now.day:02}{now.month:02}{now.hour:02}{now.minute - (now.minute % 10):02}"
 
-    # Call OpenAI ChatGPT
     user_input = event.message.text
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # or "gpt-4" if you have access
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": user_input}
-            ],
-            temperature=0.6
-        )
-        reply = response.choices[0].message["content"].strip()
-    except Exception as e:
-        reply = "เกิดข้อผิดพลาดในการเรียกใช้งาน OpenAI API: " + str(e)
 
-    # Send response back to user
+    try:
+        reply = generate_typhoon2_reply(user_input)
+    except Exception as e:
+        reply = "เกิดข้อผิดพลาดในการเรียกใช้งาน Typhoon2 โมเดล: " + str(e)
+
     send_message(event, reply)
 
 
-# Helper function for sending messages
+def generate_typhoon2_reply(user_input: str) -> str:
+    """
+    Generate reply from Typhoon2 7B chat model.
+    """
+    # Prepare input prompt with system role for chat style
+    system_prompt = "You are a helpful assistant."
+    prompt = f"{system_prompt}\nUser: {user_input}\nAssistant:"
+
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
+
+    # Generate response
+    output_ids = model.generate(
+        input_ids,
+        max_length=512,
+        do_sample=True,
+        temperature=0.6,
+        pad_token_id=tokenizer.eos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        no_repeat_ngram_size=3,
+        num_return_sequences=1
+    )
+
+    # Decode generated tokens (skip prompt tokens)
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
+    # Remove the prompt part from generated text to get only the assistant's reply
+    reply = generated_text[len(prompt):].strip()
+    return reply
+
+
 def send_message(event, message):
     line_bot_api.reply_message(
         event.reply_token,
