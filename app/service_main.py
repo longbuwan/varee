@@ -20,7 +20,7 @@ line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)  # CHANNEL_ACCESS_TOKEN
 handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)  # CHANNEL_SECRET
 
 
-@router.post("/")
+@router.post("")
 async def multimodal_demo(request: Request):
     """
     Line Webhook endpoint สำหรับรับข้อความจาก Line Messaging API และประมวลผลข้อความด้วย AI FOR THAI
