@@ -6,6 +6,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from aift import setting
 from aift.multimodal import textqa
 
+
 from datetime import datetime
 from app.configs import Configs
 import logging
