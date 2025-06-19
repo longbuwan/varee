@@ -20,7 +20,7 @@ setting.set_api_key(cfg.AIFORTHAI_APIKEY) # AIFORTHAI_APIKEY
 line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)  # CHANNEL_ACCESS_TOKEN
 handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)  # CHANNEL_SECRET
 
-lient = OpenAI(api_key=cfg.OPENAI_APIKEY)
+client = OpenAI(api_key=cfg.OPENAI_APIKEY)
 @router.post("/")
 async def multimodal_demo(request: Request):
     """
