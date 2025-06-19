@@ -6,7 +6,7 @@ class Configs(BaseSettings):
     LINE_CHANNEL_ACCESS_TOKEN: str
     LINE_CHANNEL_SECRET: str
 
-    OPENAI_API: str
+    OPENAI_APIKEY: str
     # Basic NLP VARIABLES
     WAV_URL: str
     WAV_FILE: str
