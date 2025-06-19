@@ -43,16 +43,12 @@ def handle_text_message(event):
     session_id = f"{day:02}{month:02}{hour:02}{adjusted_minute:02}"
 
     # OpenAI GPT-4.1 response
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model="gpt-4.1",
-        messages=[
-            {"role": "user", "content": event.message.text}
-        ]
+        input=event.message.text
     )
 
-    text = response.choices[0].message.content.strip()
-    print("AI raw response:", repr(text))  # ✅ Move print here
-    send_message(event, text)
+    send_message(event, response.output_text)
 
 
 def echo(event):
