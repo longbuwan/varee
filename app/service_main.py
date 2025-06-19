@@ -6,7 +6,7 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 from aift import setting
 from aift.multimodal import textqa
-
+from openai import OpenAI
 from datetime import datetime
 
 from app.configs import Configs
@@ -19,7 +19,7 @@ setting.set_api_key(cfg.AIFORTHAI_APIKEY) # AIFORTHAI_APIKEY
 line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)  # CHANNEL_ACCESS_TOKEN
 handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)  # CHANNEL_SECRET
 
-
+lient = OpenAI(api_key=cfg.OPENAI_APIKEY)
 @router.post("/")
 async def multimodal_demo(request: Request):
     """
@@ -57,12 +57,16 @@ def handle_text_message(event):
     result = f"{day:02}{month:02}{hour:02}{adjusted_minute:02}"
 
     # aiforthai multimodal chat
-    text = textqa.chat(
-        event.message.text, result + cfg.AIFORTHAI_APIKEY, temperature=0.6, context=""
-    )["response"]
-
+    #text = textqa.chat(
+    #    event.message.text, result + cfg.AIFORTHAI_APIKEY, temperature=0.6, context=""
+    #)["response"]
+    text = client.responses.create(
+        model = "gpt-4.1",
+       input = event.message.text
+   
+    )
     # return text response
-    send_message(event, text)
+    send_message(event, text.output.text)
 
 
 def echo(event):
