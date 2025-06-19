@@ -63,7 +63,7 @@ def handle_text_message(event):
     #)["response"]
     text = client.responses.create(
         model = "gpt-4.1",
-       input = event.message_text
+       input = event.message.text
    
     )
     # return text response
