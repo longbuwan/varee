@@ -61,13 +61,15 @@ def handle_text_message(event):
     #text = textqa.chat(
     #    event.message.text, result + cfg.AIFORTHAI_APIKEY, temperature=0.6, context=""
     #)["response"]
-    text = client.responses.create(
-        model = "gpt-4.1",
-       input = event.message.text, result + cfg.OPENAI_APIKEY, temperature=0.6, context=""
-   
-    )
-    # return text response
-    send_message(event, text.output_text)
+  response = client.chat.completions.create(
+    model="gpt-4.1",
+    messages=[
+        {"role": "user", "content": event.message.text}
+    ]
+)
+
+text = response.choices[0].message.content.strip()
+send_message(event, text)
 
 
 def echo(event):
