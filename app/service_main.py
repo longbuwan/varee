@@ -63,7 +63,7 @@ def handle_text_message(event):
     #)["response"]
     text = client.responses.create(
         model = "gpt-4.1",
-       input = event.message.text, result + cfg.AIFORTHAI_APIKEY, temperature=0.6, context=""
+       input = event.message.text, result + cfg.OPENAI_APIKEY, temperature=0.6, context=""
    
     )
     # return text response
