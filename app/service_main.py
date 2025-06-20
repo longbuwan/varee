@@ -33,11 +33,12 @@ async def multimodal_demo(request: Request):
     return "OK"
 
 
-@handler.add(MessageEvent, message=TextMessage)
+
 context_info = (
     "Chat name: Varee Chat Bot\n"
     "Assistant: Helpful AI that gives University enrollment tips\n"
 )
+@handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
     # session id (can be used for AI FOR THAI if needed)
     current_time = datetime.now()
