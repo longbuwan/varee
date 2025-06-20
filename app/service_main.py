@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import TemplateSendMessage, ButtonsTemplate, URIAction, MessageEvent, TextMessage, TextSendMessage
 
 from aift import setting
 from aift.multimodal import textqa
@@ -48,12 +48,28 @@ def handle_text_message(event):
     session_id = f"{day:02}{month:02}{hour:02}{adjusted_minute:02}"
 
     # OpenAI GPT-4.1 response
-    response = client.responses.create(
-        model="gpt-4.1",
-        input= context_info + event.message.text
-    )
+    if event.message.text != "form:
+        response = client.responses.create(
+            model="gpt-4.1",
+            input= context_info + event.message.text
+        )
 
-    send_message(event, response.output_text)
+        send_message(event, response.output_text)
+    else:
+    
+        message = TemplateSendMessage(
+            alt_text='Open the LIFF App',
+            template=ButtonsTemplate(
+                title='Try the App',
+                text='Click below to open the LIFF app.',
+                actions=[
+                    URIAction(label='Open LIFF', uri='https://liff.line.me/1657xxxxxxxxxx')
+                ]
+            )
+        )
+
+        line_bot_api.reply_message(event.reply_token, message)
+
 
 
 def echo(event):
