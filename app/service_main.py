@@ -34,6 +34,10 @@ async def multimodal_demo(request: Request):
 
 
 @handler.add(MessageEvent, message=TextMessage)
+context_info = (
+    "Chat name: Varee Chat Bot\n"
+    "Assistant: Helpful AI that gives University enrollment tips\n"
+)
 def handle_text_message(event):
     # session id (can be used for AI FOR THAI if needed)
     current_time = datetime.now()
@@ -45,7 +49,7 @@ def handle_text_message(event):
     # OpenAI GPT-4.1 response
     response = client.responses.create(
         model="gpt-4.1",
-        input=event.message.text
+        input= context_info + event.message.text
     )
 
     send_message(event, response.output_text)
