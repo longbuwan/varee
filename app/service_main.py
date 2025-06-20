@@ -48,7 +48,7 @@ def handle_text_message(event):
     session_id = f"{day:02}{month:02}{hour:02}{adjusted_minute:02}"
 
     # OpenAI GPT-4.1 response
-    if event.message.text != "form:
+    if event.message.text != "form":
         response = client.responses.create(
             model="gpt-4.1",
             input= context_info + event.message.text
