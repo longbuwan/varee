@@ -63,7 +63,7 @@ def handle_text_message(event):
                 title='Try the App',
                 text='Click below to open the LIFF app.',
                 actions=[
-                    URIAction(label='Open LIFF', uri='https://liff.line.me/1657xxxxxxxxxx')
+                    URIAction(label='Open LIFF', uri='https://liff.line.me/2007611527-z7ZNLXOk')
                 ]
             )
         )
