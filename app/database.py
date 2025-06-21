@@ -10,7 +10,7 @@ app = FastAPI()
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json = json.loads(os.environ["GOOGLE_CREDS_JSON"])
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE))  # path to your key file
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE)  # path to your key file
 CLIENT = gspread.authorize(CREDS)
 
 sheet = gc.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")  # Replace with your actual ID
