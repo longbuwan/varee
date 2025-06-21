@@ -6,3 +6,5 @@ pydantic_settings~=2.9.1
 torch
 openai
 pydantic
+gspread
+oauth2client
