@@ -4,16 +4,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 
-with open("service_account.json", "r") as f:
-    data = json.load(f)
 
-# Convert to string
-Key_str = json.dumps(data)
 app = FastAPI()
 
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-CREDS = ServiceAccountCredentials.from_json_keyfile_name(Key_str, SCOPE)  # path to your key file
+reds_json = json.loads(os.environ["GOOGLE_CREDS_JSON"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE))  # path to your key file
 CLIENT = gspread.authorize(CREDS)
 
 SHEET = CLIENT.open("Your Google Sheet Name").sheet1  # opens the first sheet
