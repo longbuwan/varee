@@ -5,3 +5,4 @@ aift~=1.3.2
 pydantic_settings~=2.9.1
 torch
 openai
+pydantic
