@@ -8,7 +8,7 @@ from app import (
     service_main,  # main service router
     service_nlp,  # NLP service router
     service_image,# image service router
-    service_scores
+    database
 )
 
 app = FastAPI(
@@ -27,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(service_main.router)
+app.include_router(database.router)
 app.include_router(service_nlp.router)
 app.include_router(service_image.router)
 
