@@ -1,8 +1,18 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 app = FastAPI()
 
+# ---- SETUP GOOGLE SHEETS ----
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+CREDS = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", SCOPE)  # path to your key file
+CLIENT = gspread.authorize(CREDS)
+
+SHEET = CLIENT.open("Your Google Sheet Name").sheet1  # opens the first sheet
+
+# ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
     userId: str
     name: str
@@ -14,5 +24,15 @@ class ScoreSubmission(BaseModel):
 @app.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
-    # TODO: Save to database here (MongoDB, Firebase, etc.)
-    return {"message": "Data saved successfully"}
+
+    # Save to Google Sheet
+    SHEET.append_row([
+        data.userId,
+        data.name,
+        data.gpax,
+        data.tgat1,
+        data.tgat2,
+        data.tgat3
+    ])
+
+    return {"message": "Data saved to Google Sheets successfully"}
