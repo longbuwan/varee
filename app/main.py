@@ -8,6 +8,7 @@ from app import (
     service_main,  # main service router
     service_nlp,  # NLP service router
     service_image,# image service router
+    service_scores
 )
 
 app = FastAPI(
