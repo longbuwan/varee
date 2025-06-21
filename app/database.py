@@ -13,7 +13,8 @@ creds_json = json.loads(os.environ["GOOGLE_CREDS_JSON"])
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE))  # path to your key file
 CLIENT = gspread.authorize(CREDS)
 
-SHEET = CLIENT.open("Your Google Sheet Name").sheet1  # opens the first sheet
+sheet = gc.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")  # Replace with your actual ID
+worksheet = sheet.sheet1    # opens the first sheet
 
 # ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
@@ -29,7 +30,7 @@ async def save_score(data: ScoreSubmission):
     print("Received data:", data)
 
     # Save to Google Sheet
-    SHEET.append_row([
+    worksheet.append_row([
         data.userId,
         data.name,
         data.gpax,
