@@ -12,7 +12,7 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
 creds_json = json.loads(creds_json_str)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE)  # path to your key file
-CLIENT = gspread.authorize(CREDS)
+CLIENT = gspread.authorize(creds)
 
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")  # Replace with your actual ID
 worksheet = sheet.sheet1    # opens the first sheet
