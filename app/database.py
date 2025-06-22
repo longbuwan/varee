@@ -101,7 +101,7 @@ async def save_score(data: ScoreSubmission):
                         new_row.append(str(new_val))
             
             # Update the row in the sheet
-            cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(1, len(columns)).split('1')[0]}{row_index}"
+            cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
             worksheet.update(cell_range, [new_row])
 
         else:
