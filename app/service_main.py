@@ -93,62 +93,6 @@ def echo(event):
 def send_message(event, message):
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
 
-import os
-
-def setup_rich_menu_once():
-    flag_file = "rich_menu_setup_flag.txt"
-    if os.path.exists(flag_file):
-        with open(flag_file, "r") as f:
-            status = f.read().strip()
-            if status == "done":
-                print("Rich menu already set up. Skipping.")
-                return
 
 
 
-
-    
-    # --- Setup Rich Menu ---
-
-from linebot import LineBotApi
-from linebot.models import (
-    RichMenu, RichMenuArea, RichMenuBounds, URIAction
-)
-
-# Your Channel Access Token
-line_bot_api = LineBotApi('232462993')
-
-# 1. Create the rich menu
-rich_menu_to_create = RichMenu(
-    size={"width": 2500, "height": 843},
-    selected=True,
-    name="My Menu",
-    chat_bar_text="Tap here",
-    areas=[
-        RichMenuArea(
-            bounds=RichMenuBounds(x=0, y=0, width=2500, height=843),
-            action=URIAction(
-                label="Visit Site",
-                uri="https://vareepri-longbuwans-projects.vercel.app/"
-            )
-        )
-    ]
-)
-
-# 2. Create and get the ID
-rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu_to_create)
-
-# 3. Upload the image AFTER creating the menu
-with open('rich_menu_image.png', 'rb') as f:
-    line_bot_api.set_rich_menu_image(rich_menu_id, 'image/png', f)
-
-# 4. Set it as default rich menu
-line_bot_api.set_default_rich_menu(rich_menu_id)
-
-print("✅ Rich Menu created and set as default:", rich_menu_id)
-
-# Optional: mark as done
-with open("rich_menu_done.flag", "w") as f:
-    f.write("done")
-# Call the setup function when the app starts
-setup_rich_menu_once()
