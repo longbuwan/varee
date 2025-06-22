@@ -27,7 +27,6 @@ app.add_middleware(
 )
 
 app.include_router(service_main.router)
-app.include_router(database.router)
 app.include_router(service_nlp.router)
 app.include_router(service_image.router)
 
