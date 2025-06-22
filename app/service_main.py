@@ -92,3 +92,46 @@ def echo(event):
 
 def send_message(event, message):
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))
+
+import os
+
+def setup_rich_menu_once():
+    flag_file = "rich_menu_setup_flag.txt"
+    if os.path.exists(flag_file):
+        with open(flag_file, "r") as f:
+            status = f.read().strip()
+            if status == "done":
+                print("Rich menu already set up. Skipping.")
+                return
+
+
+
+
+    
+    # --- Setup Rich Menu ---
+rich_menu_to_create = RichMenu(
+        size={"width": 2500, "height": 843},
+        selected=True,
+        name="My Menu",
+        chat_bar_text="Tap here",
+        areas=[
+            RichMenuArea(
+                bounds=RichMenuBounds(x=0, y=0, width=2500, height=843),
+                action=URIAction(
+                    label="Visit Site",
+                    uri="https://vareepri-longbuwans-projects.vercel.app/"
+                )
+            )
+        ]
+    )
+
+rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu_to_create)
+line_bot_api.set_default_rich_menu(rich_menu_id)
+print("✅ Rich Menu created:", rich_menu_id)
+
+    # Mark as done so it doesn't run again
+with open(flag_file, "w") as f:
+    f.write("done")
+
+# Call the setup function when the app starts
+setup_rich_menu_once()
