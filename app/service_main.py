@@ -47,9 +47,7 @@ rich_menu_to_create = RichMenu(
 rich_menu_id = client.create_rich_menu(rich_menu=rich_menu_to_create)
 print("Rich Menu ID:", rich_menu_id)
 
-# 2. Upload image
-with open("menu_image.png", "rb") as f:
-    client.set_rich_menu_image(rich_menu_id, "image/png", f)
+
 
 # 3. Set it as default for all users
 client.set_default_rich_menu(rich_menu_id)
