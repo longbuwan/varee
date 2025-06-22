@@ -44,13 +44,13 @@ rich_menu_to_create = RichMenu(
     ]
 )
 
-rich_menu_id = client.create_rich_menu(rich_menu=rich_menu_to_create)
+rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu_to_create)
 print("Rich Menu ID:", rich_menu_id)
 
 
 
 # 3. Set it as default for all users
-client.set_default_rich_menu(rich_menu_id)
+line_bot_api.set_default_rich_menu(rich_menu_id)
 
 
 
