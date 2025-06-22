@@ -27,30 +27,6 @@ client = OpenAI(api_key=cfg.OPENAI_APIKEY)
 
 
 
-# 1. Create the rich menu
-rich_menu_to_create = RichMenu(
-    size={"width": 2500, "height": 843},
-    selected=True,
-    name="My Menu",
-    chat_bar_text="Tap here",
-    areas=[
-        RichMenuArea(
-            bounds=RichMenuBounds(x=0, y=0, width=2500, height=843),
-            action=URIAction(
-                label="Visit Site",
-                uri="https://vareepri-longbuwans-projects.vercel.app/"
-            )
-        )
-    ]
-)
-
-rich_menu_id = line_bot_api.create_rich_menu(rich_menu=rich_menu_to_create)
-print("Rich Menu ID:", rich_menu_id)
-
-
-
-# 3. Set it as default for all users
-line_bot_api.set_default_rich_menu(rich_menu_id)
 
 
 
