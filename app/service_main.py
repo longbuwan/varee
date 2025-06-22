@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import TemplateSendMessage, ButtonsTemplate, URIAction, MessageEvent, TextMessage, TextSendMessage
+from linebot.models import RichMenu, RichMenuArea, RichMenuBounds, MessageAction,TemplateSendMessage, ButtonsTemplate, URIAction, MessageEvent, TextMessage, TextSendMessage
 
 from aift import setting
 from aift.multimodal import textqa
@@ -10,6 +10,8 @@ from openai import OpenAI
 from datetime import datetime
 
 from app.configs import Configs
+
+
 
 router = APIRouter(tags=["Main"], prefix="/message")
 
@@ -20,6 +22,42 @@ line_bot_api = LineBotApi(cfg.LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(cfg.LINE_CHANNEL_SECRET)
 
 client = OpenAI(api_key=cfg.OPENAI_APIKEY)
+
+
+
+
+
+# 1. Create the rich menu
+rich_menu_to_create = RichMenu(
+    size={"width": 2500, "height": 843},
+    selected=True,
+    name="My Menu",
+    chat_bar_text="Tap here",
+    areas=[
+        RichMenuArea(
+            bounds=RichMenuBounds(x=0, y=0, width=2500, height=843),
+            action=URIAction(
+                label="Visit Site",
+                uri="https://vareepri-longbuwans-projects.vercel.app/"
+            )
+        )
+    ]
+)
+
+rich_menu_id = client.create_rich_menu(rich_menu=rich_menu_to_create)
+print("Rich Menu ID:", rich_menu_id)
+
+# 2. Upload image
+with open("menu_image.png", "rb") as f:
+    client.set_rich_menu_image(rich_menu_id, "image/png", f)
+
+# 3. Set it as default for all users
+client.set_default_rich_menu(rich_menu_id)
+
+
+
+
+
 
 
 @router.post("/")
