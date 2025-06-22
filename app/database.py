@@ -1,4 +1,7 @@
 from fastapi import FastAPI
+from fastapi import APIRouter
+
+
 from pydantic import BaseModel
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -6,7 +9,7 @@ import json
 import os
 
 app = FastAPI()
-
+router = APIRouter()
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
@@ -26,7 +29,7 @@ class ScoreSubmission(BaseModel):
     tgat2: float
     tgat3: float
 
-@app.post("/api/save-score")
+@router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
 
