@@ -29,7 +29,7 @@ app.add_middleware(
 app.include_router(service_main.router)
 app.include_router(service_nlp.router)
 app.include_router(service_image.router)
-
+app.include_router(database.router)
 # Save static files at the /static endpoint
 if not os.path.exists("static"):
     os.makedirs("static")
