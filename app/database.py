@@ -56,32 +56,24 @@ class ScoreSubmission(BaseModel):
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
 
+all_values = worksheet.get_all_values()
 
+try:
+    uni_col_index = all_values[0].index("University")
+except ValueError:
+    unique_universities = []  # fallback if "University" column is not found
+else:
+    universities = {
+        row[uni_col_index].strip()
+        for row in all_values[1:]
+        if uni_col_index < len(row) and row[uni_col_index].strip()
+    }
+    unique_universities = sorted(universities)
+# ----------------------------
 
 @router.post("/api/show-uni")
 async def get_score(data: UserIdRequest):
-    all_values = worksheet.get_all_values()
-
-    # Find the index of the "University" column
-    header = all_values[0]
-    try:
-        uni_col_index = header.index("University")
-    except ValueError:
-        return {"error": "University column not found."}
-
-# Extract the column values (excluding header), and get unique values
-    universities = set()
-    for row in all_values[1:]:
-        if uni_col_index < len(row):
-            uni_name = row[uni_col_index].strip()
-            if uni_name:
-                universities.add(uni_name)
-
-    # Convert set to sorted list for consistent output
-    unique_universities = sorted(universities)
-
     return {"data": unique_universities}
-
 
 
 
