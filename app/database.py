@@ -5,6 +5,7 @@ import gspread.utils
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
+import pandas as pd
 
 app = FastAPI()
 router = APIRouter()
@@ -19,6 +20,45 @@ CLIENT = gspread.authorize(creds)
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
 worksheet = sheet.get_worksheet(0)  # First worksheet (index starts at 0)
 datasheet = sheet.get_worksheet(1)
+
+worksheet_df  = pd.DataFrame(worksheet.get_all_records())
+datasheet_df  = pd.DataFrame(datasheet.get_all_records())
+
+last_row = worksheet_df.iloc[-1]
+
+def calScore():
+    output = []
+    id_val = last_row["ID"]
+    is_duplicate = int(last_row["Is_Duplicated_ID"])
+    if is_duplicate == 0:
+        matched_df = datasheet_df[datasheet_df["ID"] == id_val]
+    else:
+        program_shared = last_row["Program_shared"]
+        matched_df = datasheet_df[
+            (datasheet_df["ID"] == id_val) & 
+            (datasheet_df["Program_shared"] == program_shared)
+        ]
+    match_row = matched_df.iloc[0]
+    if last_row["gpax"] < match_row["gpax_req"]:
+        output.append("gpax score does not match with the requirement")
+    else:
+        target_columns = [
+    "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
+    "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88", "cal_subject_name",
+    "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "cal_score_sum", "a_lv_83", "tpat21",
+    "a_lv_70", "a_lv_66", "tgat1", "tpat5", "cal_type", "vnet_51", "tgat3", "tpat22",
+    "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
+    "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
+    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
+    "tpat11", "tpat12", "tpat13"
+    ]
+        score_req = {col: match_row[col] for col in target_columns if pd.notnull(match_row.get(col))}
+
+        
+
+
+    
+
 
 # ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
@@ -85,7 +125,7 @@ async def save_score(data: ScoreSubmission):
 
         columns = [
             "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
-            "tpat1_1", "tpat1_2", "tpat1_3", "tpat2_1", "tpat2_2", "tpat2_3",
+            "tpat11", "tpat12", "tpat13", "tpat21", "tpat22", "tpat23",
             "tpat3", "tpat4", "tpat5",
             "alevel1_1", "alevel1_2", "alevel2_1", "alevel2_2", "alevel2_3", "alevel2_4",
             "alevel3", "alevel4_1", "alevel4_2", "alevel4_3", "alevel4_4", "alevel4_5",
@@ -127,5 +167,9 @@ async def save_score(data: ScoreSubmission):
 
     upsert_user_data(worksheet, data)
     return {"message": "Data saved to Google Sheets successfully"}
+
+    
+
+
 
 app.include_router(router)
