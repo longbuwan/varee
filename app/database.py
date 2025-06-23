@@ -54,7 +54,30 @@ class ScoreSubmission(BaseModel):
     alevel4_7: Optional[float] = None
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
+@router.post("/api/load-score")
+async def get_score(data: dict):
+    user_id = data.get("userId")
+    if not user_id:
+        return {"error": "userId is required"}
 
+    columns = [
+        "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
+        "tpat1_1", "tpat1_2", "tpat1_3", "tpat2_1", "tpat2_2", "tpat2_3",
+        "tpat3", "tpat4", "tpat5",
+        "alevel1_1", "alevel1_2", "alevel2_1", "alevel2_2", "alevel2_3", "alevel2_4",
+        "alevel3", "alevel4_1", "alevel4_2", "alevel4_3", "alevel4_4", "alevel4_5",
+        "alevel4_6", "alevel4_7", "alevel4_8", "alevel4_9"
+    ]
+
+    all_values = worksheet.get_all_values()
+
+    for row in all_values:
+        if len(row) > 0 and row[0] == user_id:
+            # Map column names to values, fill missing columns with ""
+            result = {col: row[idx] if idx < len(row) else "" for idx, col in enumerate(columns)}
+            return {"data": result}
+
+    return {"data": None, "message": "User not found"}
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
