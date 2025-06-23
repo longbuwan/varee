@@ -20,7 +20,7 @@ sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
 worksheet = sheet.sheet1
 datasheet = sheet.sheet2
 
-# ---- FASTAPI MODEL (with Optional for new fields to allow partial updates) ----
+# ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
     userId: str
     name: str
@@ -56,6 +56,10 @@ class ScoreSubmission(BaseModel):
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
 
+class UserIdRequest(BaseModel):
+    userId: str
+
+# ---- COLLECT UNIQUE UNIVERSITIES ----
 all_values = worksheet.get_all_values()
 
 try:
@@ -69,14 +73,11 @@ else:
         if uni_col_index < len(row) and row[uni_col_index].strip()
     }
     unique_universities = sorted(universities)
-# ----------------------------
 
+# ---- ROUTES ----
 @router.post("/api/show-uni")
 async def get_score(data: UserIdRequest):
     return {"data": unique_universities}
-
-
-
 
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
@@ -85,7 +86,6 @@ async def save_score(data: ScoreSubmission):
     def upsert_user_data(worksheet, data):
         all_values = worksheet.get_all_values()
 
-        # Define column headers (adjust as needed to match your sheet's columns)
         columns = [
             "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
             "tpat1_1", "tpat1_2", "tpat1_3", "tpat2_1", "tpat2_2", "tpat2_3",
@@ -102,40 +102,26 @@ async def save_score(data: ScoreSubmission):
                 row_index = i + 1  # gspread is 1-indexed
                 break
 
-        # Prepare the new row data, keeping old values if new is None
-      if row_index:
-    old_row = all_values[row_index - 1]
-    # Make sure old_row length matches columns length (fill with empty if short)
-    if len(old_row) < len(columns):
-        old_row += [''] * (len(columns) - len(old_row))
+        if row_index:
+            old_row = all_values[row_index - 1]
+            if len(old_row) < len(columns):
+                old_row += [''] * (len(columns) - len(old_row))
 
-    new_row = []
-    for idx, col in enumerate(columns):
-        if col == "userId":
-            new_row.append(data.userId)
-        elif col == "name":
-            new_row.append(data.name)
-        else:
-            new_val = getattr(data, col)
-            if new_val is None or new_val == '':
-                new_row.append('')  # Force blank if no value provided
-            else:
-                new_row.append(str(new_val))
+            new_row = []
+            for idx, col in enumerate(columns):
+                if col == "userId":
+                    new_row.append(data.userId)
+                elif col == "name":
+                    new_row.append(data.name)
+                else:
+                    new_val = getattr(data, col)
+                    new_row.append(str(new_val) if new_val is not None else '')
 
-    # Update the row in the sheet
-    cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
-    worksheet.update(cell_range, [new_row])
-
-else:
-    # Append new row, replacing None with empty string
-    new_row = [data.userId, data.name]
-    for col in columns[2:]:
-        val = getattr(data, col)
-        new_row.append(str(val) if val is not None else '')
-    worksheet.append_row(new_row)
+            cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
+            worksheet.update(cell_range, [new_row])
 
         else:
-            # Append new row, replacing None with empty string
+            # Append new row
             new_row = [data.userId, data.name]
             for col in columns[2:]:
                 val = getattr(data, col)
@@ -143,7 +129,6 @@ else:
             worksheet.append_row(new_row)
 
     upsert_user_data(worksheet, data)
-
     return {"message": "Data saved to Google Sheets successfully"}
 
 app.include_router(router)
