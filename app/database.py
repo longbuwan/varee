@@ -96,6 +96,15 @@ class ScoreSubmission(BaseModel):
     a_lv_88: Optional[float] = None
     a_lv_89: Optional[float] = None
 
+    gpa21: Optional[float] = None
+    gpa22: Optional[float] = None
+    gpa23: Optional[float] = None
+    gpa24: Optional[float] = None
+    gpa26: Optional[float] = None
+    gpa27: Optional[float] = None
+    gpa28: Optional[float] = None
+  
+
 @router.post("/api/find_faculty")
 async def find_faculty(data: ScoreSubmission):
     values = datasheet.get_all_values()
@@ -124,7 +133,7 @@ async def save_score(data: ScoreSubmission):
         all_values = worksheet.get_all_values()
 
         columns = [
-          "gpax","tgat1","tgat2","tgat3","tpat11","tpat12","tpat13","tpat21","tpat22","tpat23","tpat3","tpat4","tpat5","a_lv_61","a_lv_62","a_lv_63","a_lv_64","a_lv_65","a_lv_66","a_lv_70","a_lv_81","a_lv_82","a_lv_83","a_lv_84","a_lv_85","a_lv_86","a_lv_87","a_lv_88","a_lv_89"
+          "gpax","tgat1","tgat2","tgat3","tpat11","tpat12","tpat13","tpat21","tpat22","tpat23","tpat3","tpat4","tpat5","a_lv_61","a_lv_62","a_lv_63","a_lv_64","a_lv_65","a_lv_66","a_lv_70","a_lv_81","a_lv_82","a_lv_83","a_lv_84","a_lv_85","a_lv_86","a_lv_87","a_lv_88","a_lv_89","gpa21","gpa22","gpa23","gpa24","gpa26","gpa27","gpa28",
 
         ]
 
