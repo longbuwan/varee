@@ -178,7 +178,7 @@ async def find_faculty(data: ScoreSubmission):
                 faculty_set.add(faculty_name)
 
     return {"faculties": sorted(faculty_set)}
-@router.post("/api/find_feild")
+@router.post("/api/find_field")
 async def find_faculty(data: ScoreSubmission):
     values = datasheet.get_all_values()
 
@@ -188,17 +188,17 @@ async def find_faculty(data: ScoreSubmission):
     target_university = data.name.strip().lower()
     target_faculty = data.faculty.strip().lower()
 
-    feild_set = set()
+    field_set = set()
 
     for row in rows:
         if len(row) >= 3:
             university_name = row[1].strip().lower()
             faculty_name = row[2].strip()
-            feild_name = row[3].strip
-            if university_name == target_university and faculty_name == target_faculty and feild_name:
-                feild_set.add(feild_name)
+            field_name = row[3].strip
+            if university_name == target_university and faculty_name == target_faculty and field_name:
+                field_set.add(field_name)
 
-    return {"faculties": sorted(feild_set)}
+    return {"faculties": sorted(field_set)}
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
