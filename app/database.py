@@ -21,41 +21,92 @@ sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
 worksheet = sheet.get_worksheet(0)  # First worksheet (index starts at 0)
 datasheet = sheet.get_worksheet(1)
 
-# worksheet_df  = pd.DataFrame(worksheet.get_all_records())
-# datasheet_df  = pd.DataFrame(datasheet.get_all_records())
+worksheet_df  = pd.DataFrame(worksheet.get_all_records())
+datasheet_df  = pd.DataFrame(datasheet.get_all_records())
 
-# last_row = worksheet_df.iloc[-1]
+last_row = worksheet_df.iloc[-1]
 
-# def calScore():
-#     output = []
-#     id_val = last_row["ID"]
-#     is_duplicate = int(last_row["Is_Duplicated_ID"])
-#     if is_duplicate == 0:
-#         matched_df = datasheet_df[datasheet_df["ID"] == id_val]
-#     else:
-#         program_shared = last_row["Program_shared"]
-#         matched_df = datasheet_df[
-#             (datasheet_df["ID"] == id_val) & 
-#             (datasheet_df["Program_shared"] == program_shared)
-#         ]
-#     match_row = matched_df.iloc[0]
-#     if last_row["gpax"] < match_row["gpax_req"]:
-#         output.append("gpax score does not match with the requirement")
-#     else:
-#         target_columns = [
-#     "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
-#     "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88", "cal_subject_name",
-#     "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "cal_score_sum", "a_lv_83", "tpat21",
-#     "a_lv_70", "a_lv_66", "tgat1", "tpat5", "cal_type", "vnet_51", "tgat3", "tpat22",
-#     "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
-#     "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
-#     "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
-#     "tpat11", "tpat12", "tpat13"
-#     ]
-#         score_req = {col: match_row[col] for col in target_columns if pd.notnull(match_row.get(col))}
-#         # score_req.get("tpat2")
-#         if pd.notnull(score_req.get("cal_type")):
-#             return
+def calScore():
+    score = 0
+    output = []
+    for i in range(0,10):
+        id_val = last_row["ID"]
+        is_duplicate = int(last_row["Is_Duplicated_ID"])
+        if is_duplicate == 0:
+            matched_df = datasheet_df[datasheet_df["ID"] == id_val]
+        else:
+            program_shared = last_row["Program_shared"]
+            matched_df = datasheet_df[
+                (datasheet_df["ID"] == id_val) & 
+                (datasheet_df["Program_shared"] == program_shared)
+            ]
+        match_row = matched_df.iloc[0]
+        if last_row["gpax"] < match_row["gpax_req"]:
+            output.append("gpax score does not match with the requirement")
+            continue 
+        else:
+            target_columns = [
+        "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
+        "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88", "cal_subject_name",
+        "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "cal_score_sum", "a_lv_83", "tpat21",
+        "a_lv_70", "a_lv_66", "tgat1", "tpat5", "cal_type", "vnet_51", "tgat3", "tpat22",
+        "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
+        "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
+        "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
+        "tpat11", "tpat12", "tpat13"
+        ]
+            score_req = {col: match_row[col] for col in target_columns if pd.notnull(match_row.get(col))}
+            # score_req.get("tpat2")
+            if pd.notnull(score_req.get("cal_type")):
+
+                subject_specs = str(match_row.get("cal_subject_name", "")).split()
+                # Dictionary to keep track of heading → value
+                score_dict = {}
+                for spec in subject_specs:
+                    if "|" in spec:
+                        group = spec.split("|")
+                        group_values = {
+                            subj: row.get(subj)
+                            for subj in group
+                            if pd.notnull(row.get(subj))
+                        }
+                        if group_values:
+                            # Get highest in this group
+                            top_subject = max(group_values, key=group_values.get)
+                            score_dict[top_subject] = group_values[top_subject]
+                    else:
+                        val = match_row.get(spec)
+                        if pd.notnull(val):
+                            score_dict[spec] = val
+                if score_dict:
+                    # Get the heading with the highest score
+                    best_subject = max(score_dict, key=score_dict.get)
+                    highest_score = score_dict[best_subject]
+                    print(f"Highest Score: {highest_score} (from {best_subject})")
+                else:
+                    print("No valid scores found.")
+                    output.append("Require more information")
+                for col, datasheet_value in score_req.items():
+                    worksheet_value = last_row.get(col)
+                    
+                    # Multiply only if worksheet value is also valid (not null)
+                    if pd.notnull(worksheet_value):
+                        product = float(worksheet_value) * (float(datasheet_value))/100
+                        product_sum += product
+                        print(f"{col}: {worksheet_value} × {datasheet_value} = {product}")
+                score = product_sum + highest_score * (best_subject / 100)
+                output.append(score)
+                continue
+            for col, datasheet_value in score_req.items():
+                    worksheet_value = last_row.get(col)
+                    
+                    # Multiply only if worksheet value is also valid (not null)
+                    if pd.notnull(worksheet_value):
+                        product = float(worksheet_value) * (float(datasheet_value))/100
+                        product_sum += product
+                        print(f"{col}: {worksheet_value} × {datasheet_value} = {product}")
+            output.append(product_sum)
+            continue
 
         
 
