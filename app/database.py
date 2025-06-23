@@ -53,6 +53,9 @@ def calScore():
     "tpat11", "tpat12", "tpat13"
     ]
         score_req = {col: match_row[col] for col in target_columns if pd.notnull(match_row.get(col))}
+        # score_req.get("tpat2")
+        if pd.notnull(score_req.get("cal_type")):
+            return
 
         
 
@@ -62,8 +65,8 @@ def calScore():
 
 # ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
-    userId: str
-    name: str
+    userId: Optional[str]
+    name: Optional[str]
     gpax: Optional[float] = None
     tgat1: Optional[float] = None
     tgat2: Optional[float] = None
