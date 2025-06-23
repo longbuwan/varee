@@ -103,13 +103,13 @@ async def save_score(data: ScoreSubmission):
                 break
 
         # Prepare the new row data, keeping old values if new is None
-        if row_index:
-            old_row = all_values[row_index - 1]
-            # Make sure old_row length matches columns length (fill with empty if short)
-            if len(old_row) < len(columns):
-                old_row += [''] * (len(columns) - len(old_row))
+      if row_index:
+    old_row = all_values[row_index - 1]
+    # Make sure old_row length matches columns length (fill with empty if short)
+    if len(old_row) < len(columns):
+        old_row += [''] * (len(columns) - len(old_row))
 
-     new_row = []
+    new_row = []
     for idx, col in enumerate(columns):
         if col == "userId":
             new_row.append(data.userId)
@@ -121,10 +121,18 @@ async def save_score(data: ScoreSubmission):
                 new_row.append('')  # Force blank if no value provided
             else:
                 new_row.append(str(new_val))
-            
-            # Update the row in the sheet
-            cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
-            worksheet.update(cell_range, [new_row])
+
+    # Update the row in the sheet
+    cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
+    worksheet.update(cell_range, [new_row])
+
+else:
+    # Append new row, replacing None with empty string
+    new_row = [data.userId, data.name]
+    for col in columns[2:]:
+        val = getattr(data, col)
+        new_row.append(str(val) if val is not None else '')
+    worksheet.append_row(new_row)
 
         else:
             # Append new row, replacing None with empty string
