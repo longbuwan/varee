@@ -69,32 +69,32 @@ class ScoreSubmission(BaseModel):
     tgat2: Optional[float] = None
     tgat3: Optional[float] = None
 
-    tpat1_1: Optional[float] = None
-    tpat1_2: Optional[float] = None
-    tpat1_3: Optional[float] = None
-    tpat2_1: Optional[float] = None
-    tpat2_2: Optional[float] = None
-    tpat2_3: Optional[float] = None
+    tpat11: Optional[float] = None
+    tpat12: Optional[float] = None
+    tpat13: Optional[float] = None
+    tpat21: Optional[float] = None
+    tpat22: Optional[float] = None
+    tpat23: Optional[float] = None
     tpat3: Optional[float] = None
     tpat4: Optional[float] = None
     tpat5: Optional[float] = None
 
-    alevel1_1: Optional[float] = None
-    alevel1_2: Optional[float] = None
-    alevel2_1: Optional[float] = None
-    alevel2_2: Optional[float] = None
-    alevel2_3: Optional[float] = None
-    alevel2_4: Optional[float] = None
-    alevel3: Optional[float] = None
-    alevel4_1: Optional[float] = None
-    alevel4_2: Optional[float] = None
-    alevel4_3: Optional[float] = None
-    alevel4_4: Optional[float] = None
-    alevel4_5: Optional[float] = None
-    alevel4_6: Optional[float] = None
-    alevel4_7: Optional[float] = None
-    alevel4_8: Optional[float] = None
-    alevel4_9: Optional[float] = None
+    a_lv_61: Optional[float] = None
+    a_lv_62: Optional[float] = None
+    a_lv_63: Optional[float] = None
+    a_lv_64: Optional[float] = None
+    a_lv_65: Optional[float] = None
+    a_lv_66: Optional[float] = None
+    a_lv_70: Optional[float] = None
+    a_lv_81: Optional[float] = None
+    a_lv_82: Optional[float] = None
+    a_lv_83: Optional[float] = None
+    a_lv_84: Optional[float] = None
+    a_lv_85: Optional[float] = None
+    a_lv_86: Optional[float] = None
+    a_lv_87: Optional[float] = None
+    a_lv_88: Optional[float] = None
+    a_lv_89: Optional[float] = None
 
 @router.post("/api/find_faculty")
 async def find_faculty(data: ScoreSubmission):
@@ -124,12 +124,8 @@ async def save_score(data: ScoreSubmission):
         all_values = worksheet.get_all_values()
 
         columns = [
-            "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
-            "tpat11", "tpat12", "tpat13", "tpat21", "tpat22", "tpat23",
-            "tpat3", "tpat4", "tpat5",
-            "alevel1_1", "alevel1_2", "alevel2_1", "alevel2_2", "alevel2_3", "alevel2_4",
-            "alevel3", "alevel4_1", "alevel4_2", "alevel4_3", "alevel4_4", "alevel4_5",
-            "alevel4_6", "alevel4_7", "alevel4_8", "alevel4_9"
+          "gpax","tgat1","tgat2","tgat3","tpat11","tpat12","tpat13","tpat21","tpat22","tpat23","tpat3","tpat4","tpat5","a_lv_61","a_lv_62","a_lv_63","a_lv_64","a_lv_65","a_lv_66","a_lv_70","a_lv_81","a_lv_82","a_lv_83","a_lv_84","a_lv_85","a_lv_86","a_lv_87","a_lv_88","a_lv_89"
+
         ]
 
         # Find existing row by userId
