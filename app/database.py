@@ -55,10 +55,8 @@ class ScoreSubmission(BaseModel):
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
 @router.post("/api/load-score")
-async def get_score(data: dict):
-    user_id = data.get("userId")
-    if not user_id:
-        return {"error": "userId is required"}
+async def get_score(data: UserIdRequest):
+    user_id = data.userId
 
     columns = [
         "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
@@ -77,7 +75,7 @@ async def get_score(data: dict):
             result = {col: row[idx] if idx < len(row) else "" for idx, col in enumerate(columns)}
             return {"data": result}
 
-    return {"data": None, "message": "User not found"}
+    raise HTTPException(status_code=404, detail="User not found")
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
