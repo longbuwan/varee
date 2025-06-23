@@ -56,28 +56,25 @@ class ScoreSubmission(BaseModel):
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
 
-class UserIdRequest(BaseModel):
-    userId: str
+@router.post("/api/find_faculty")
+async def find_faculty(data: ScoreSubmission):
+    values = datasheet.get_all_values()
 
-# ---- COLLECT UNIQUE UNIVERSITIES ----
-all_values = worksheet.get_all_values()
+    # Skip header row
+    rows = values[1:]
 
-try:
-    uni_col_index = all_values[0].index("University")
-except ValueError:
-    unique_universities = []  # fallback if "University" column is not found
-else:
-    universities = {
-        row[uni_col_index].strip()
-        for row in all_values[1:]
-        if uni_col_index < len(row) and row[uni_col_index].strip()
-    }
-    unique_universities = sorted(universities)
+    target_university = data.name.strip().lower()
+    faculty_set = set()
 
-# ---- ROUTES ----
-@router.post("/api/show-uni")
-async def get_score(data: UserIdRequest):
-    return {"data": unique_universities}
+    for row in rows:
+        if len(row) >= 3:
+            university_name = row[1].strip().lower()
+            faculty_name = row[2].strip()
+
+            if university_name == target_university and faculty_name:
+                faculty_set.add(faculty_name)
+
+    return {"faculties": sorted(faculty_set)}
 
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
