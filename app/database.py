@@ -18,6 +18,7 @@ CLIENT = gspread.authorize(creds)
 
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
 worksheet = sheet.sheet1
+datasheet = sheet.sheet2
 
 # ---- FASTAPI MODEL (with Optional for new fields to allow partial updates) ----
 class ScoreSubmission(BaseModel):
@@ -55,28 +56,34 @@ class ScoreSubmission(BaseModel):
     alevel4_8: Optional[float] = None
     alevel4_9: Optional[float] = None
 
-class UserIdRequest(BaseModel):
-    userId: str
-@router.post("/api/load-score")
+
+
+@router.post("/api/show-uni")
 async def get_score(data: UserIdRequest):
-    user_id = data.userId
+    all_values = worksheet.get_all_values()
 
-    columns = [
-        "userId", "name", "gpax", "tgat1", "tgat2", "tgat3",
-        "tpat1_1", "tpat1_2", "tpat1_3", "tpat2_1", "tpat2_2", "tpat2_3",
-        "tpat3", "tpat4", "tpat5",
-        "alevel1_1", "alevel1_2", "alevel2_1", "alevel2_2", "alevel2_3", "alevel2_4",
-        "alevel3", "alevel4_1", "alevel4_2", "alevel4_3", "alevel4_4", "alevel4_5",
-        "alevel4_6", "alevel4_7", "alevel4_8", "alevel4_9"
-    ]
-
+    # Find the index of the "University" column
+    header = all_values[0]
     try:
-        cell = worksheet.find(user_id)
-        row = worksheet.row_values(cell.row)
-        result = {col: row[idx] if idx < len(row) else "" for idx, col in enumerate(columns)}
-        return {"data": result}
-    except gspread.exceptions.CellNotFound:
-        raise HTTPException(status_code=404, detail="User not found")
+        uni_col_index = header.index("University")
+    except ValueError:
+        return {"error": "University column not found."}
+
+# Extract the column values (excluding header), and get unique values
+    universities = set()
+    for row in all_values[1:]:
+        if uni_col_index < len(row):
+            uni_name = row[uni_col_index].strip()
+            if uni_name:
+                universities.add(uni_name)
+
+    # Convert set to sorted list for consistent output
+    unique_universities = sorted(universities)
+
+return {"data": unique_universities}
+
+
+
 
 
 @router.post("/api/save-score")
@@ -110,19 +117,18 @@ async def save_score(data: ScoreSubmission):
             if len(old_row) < len(columns):
                 old_row += [''] * (len(columns) - len(old_row))
 
-            new_row = []
-            for idx, col in enumerate(columns):
-                if col == "userId":
-                    new_row.append(data.userId)
-                elif col == "name":
-                    new_row.append(data.name)
-                else:
-                    new_val = getattr(data, col)
-                    if new_val is None or new_val == '':
-                        # Keep old value
-                        new_row.append(old_row[idx])
-                    else:
-                        new_row.append(str(new_val))
+     new_row = []
+    for idx, col in enumerate(columns):
+        if col == "userId":
+            new_row.append(data.userId)
+        elif col == "name":
+            new_row.append(data.name)
+        else:
+            new_val = getattr(data, col)
+            if new_val is None or new_val == '':
+                new_row.append('')  # Force blank if no value provided
+            else:
+                new_row.append(str(new_val))
             
             # Update the row in the sheet
             cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
