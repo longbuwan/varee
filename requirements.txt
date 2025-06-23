@@ -8,3 +8,4 @@ openai
 pydantic
 gspread
 oauth2client
+pandas
