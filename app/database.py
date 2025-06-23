@@ -80,7 +80,7 @@ async def get_score(data: UserIdRequest):
     # Convert set to sorted list for consistent output
     unique_universities = sorted(universities)
 
-return {"data": unique_universities}
+    return {"data": unique_universities}
 
 
 
