@@ -17,8 +17,8 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE)
 CLIENT = gspread.authorize(creds)
 
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
-worksheet = sheet.sheet1
-datasheet = sheet.sheet2
+worksheet = sheet.get_worksheet(0)  # First worksheet (index starts at 0)
+datasheet = sheet.get_worksheet(1)
 
 # ---- FASTAPI MODEL ----
 class ScoreSubmission(BaseModel):
