@@ -44,113 +44,236 @@ class DataCache:
 data_cache = DataCache()
 
 
-def calScore(last_row, datasheet_df):
+def calculate_program_score_improved(user_data: Dict, program: pd.Series) -> Dict:
     """
-    Calculate admission score based on university requirements
-    
-    Args:
-        last_row: pandas Series containing student data
-        datasheet_df: pandas DataFrame containing university requirements
-    
-    Returns:
-        list: List of calculated scores or error messages
+    Improved score calculation with proper cal_subject_name handling
+    and detailed university information
     """
-    import pandas as pd
+    score = 0
+    calculation_details = []
+    best_subject_info = None
     
-    output = []
+    # Check if this program has special calculation type with cal_subject_name
+    cal_type = program.get("cal_type")
+    cal_subject_name = program.get("cal_subject_name")
+    cal_score_sum = program.get("cal_score_sum")
     
-    # Get student information
-    id_val = last_row["ID"]
-    is_duplicate = int(last_row["Is_Duplicated_ID"])
-    
-    # Find matching university requirements
-    if is_duplicate == 0:
-        matched_df = datasheet_df[datasheet_df["ID"] == id_val]
-    else:
-        program_shared = last_row["Program_shared"]
-        matched_df = datasheet_df[
-            (datasheet_df["ID"] == id_val) & 
-            (datasheet_df["Program_shared"] == program_shared)
-        ]
-    
-    if matched_df.empty:
-        output.append("No matching program found")
-        return output
-    
-    match_row = matched_df.iloc[0]
-    
-    # Check GPAX requirement
-    if last_row["gpax"] < match_row["gpax_req"]:
-        output.append("gpax score does not match with the requirement")
-        return output
-    
-    # Define all possible score columns
-    target_columns = [
-        "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
-        "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88", "cal_subject_name",
-        "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "cal_score_sum", "a_lv_83", "tpat21",
-        "a_lv_70", "a_lv_66", "tgat1", "tpat5", "cal_type", "vnet_51", "tgat3", "tpat22",
-        "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
-        "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
-        "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
-        "tpat11", "tpat12", "tpat13"
-    ]
-    
-    # Get requirements for columns that have values
-    score_req = {col: match_row[col] for col in target_columns 
-                if pd.notnull(match_row.get(col)) and col not in ["cal_subject_name", "cal_type"]}
-    
-    product_sum = 0.0
-    highest_score = 0.0
-    
-    # Handle special calculation type if specified
-    if pd.notnull(match_row.get("cal_type")):
-        subject_specs = str(match_row.get("cal_subject_name", "")).split()
-        score_dict = {}
+    if pd.notna(cal_type) and pd.notna(cal_subject_name):
+        # Special calculation: pick ONE highest score from cal_subject_name subjects
+        subject_specs = str(cal_subject_name).split()
+        best_subject_score = 0
+        best_subject = None
+        available_subjects = {}
         
+        # Collect all available subject scores
         for spec in subject_specs:
             if "|" in spec:
-                # Handle grouped subjects (take highest)
-                group = spec.split("|")
-                group_values = {
-                    subj: last_row.get(subj)  # Fixed: was 'row', should be 'last_row'
-                    for subj in group
-                    if pd.notnull(last_row.get(subj))
-                }
-                if group_values:
-                    top_subject = max(group_values, key=group_values.get)
-                    score_dict[top_subject] = group_values[top_subject]
+                # Group of subjects - evaluate each in the group
+                subjects = spec.split("|")
+                for subj in subjects:
+                    user_score = user_data.get(subj)
+                    if user_score is not None:
+                        available_subjects[subj] = user_score
             else:
-                val = last_row.get(spec)  # Fixed: was 'match_row', should be 'last_row'
-                if pd.notnull(val):
-                    score_dict[spec] = val
+                # Single subject
+                user_score = user_data.get(spec)
+                if user_score is not None:
+                    available_subjects[spec] = user_score
         
-        if score_dict:
-            best_subject = max(score_dict, key=score_dict.get)
-            highest_score = score_dict[best_subject]
-            # Get the weight for this subject from cal_score_sum
-            subject_weight = match_row.get("cal_score_sum", 0)
-            if pd.notnull(subject_weight):
-                highest_score = highest_score * (float(subject_weight) / 100)
-            print(f"Highest Score: {highest_score} (from {best_subject})")
-        else:
-            output.append("Require more information")
-            return output
-    
-    # Calculate weighted scores for other columns
-    for col, datasheet_value in score_req.items():
-        worksheet_value = last_row.get(col)
+        # Find the highest score among available subjects
+        if available_subjects:
+            best_subject = max(available_subjects, key=available_subjects.get)
+            best_subject_score = available_subjects[best_subject]
+            
+            # Apply the weight from cal_score_sum
+            if pd.notna(cal_score_sum):
+                weighted_score = best_subject_score * (float(cal_score_sum) / 100)
+                score += weighted_score
+                
+                best_subject_info = {
+                    "subject": best_subject,
+                    "raw_score": best_subject_score,
+                    "weight_percentage": float(cal_score_sum),
+                    "weighted_score": weighted_score,
+                    "available_subjects": available_subjects
+                }
+                
+                calculation_details.append({
+                    "type": "cal_subject_selection",
+                    "subject": best_subject,
+                    "score": best_subject_score,
+                    "weight": float(cal_score_sum),
+                    "contribution": weighted_score
+                })
         
-        if pd.notnull(worksheet_value) and pd.notnull(datasheet_value):
-            product = float(worksheet_value) * (float(datasheet_value) / 100)
-            product_sum += product
-            print(f"{col}: {worksheet_value} × {datasheet_value}% = {product}")
+        # Add regular weighted scores for other columns (excluding the selected subject)
+        for col in SCORE_COLUMNS:
+            if (col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and 
+                col != best_subject and col not in subject_specs):
+                
+                program_weight = program.get(col)
+                user_score = user_data.get(col)
+                
+                if pd.notna(program_weight) and user_score is not None:
+                    contribution = user_score * (float(program_weight) / 100)
+                    score += contribution
+                    
+                    calculation_details.append({
+                        "type": "regular",
+                        "subject": col,
+                        "score": user_score,
+                        "weight": float(program_weight),
+                        "contribution": contribution
+                    })
+    else:
+        # Regular calculation - no special subject selection
+        for col in SCORE_COLUMNS:
+            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
+                program_weight = program.get(col)
+                user_score = user_data.get(col)
+                
+                if pd.notna(program_weight) and user_score is not None:
+                    contribution = user_score * (float(program_weight) / 100)
+                    score += contribution
+                    
+                    calculation_details.append({
+                        "type": "regular",
+                        "subject": col,
+                        "score": user_score,
+                        "weight": float(program_weight),
+                        "contribution": contribution
+                    })
     
-    # Final score calculation
-    total_score = product_sum + highest_score
-    output.append(total_score)
+    # Prepare detailed university information
+    university_details = {
+        "university_name": program.get("University"),
+        "faculty_name": program.get("Faculty"),
+        "program_name": program.get("Program"),
+        "program_shared": program.get("Program_shared"),
+        "program_id": program.get("ID"),
+        "gpax_requirement": program.get("gpax_req"),
+        "admission_type": program.get("cal_type") if pd.notna(program.get("cal_type")) else "standard",
+        "special_calculation": {
+            "has_subject_selection": pd.notna(cal_subject_name),
+            "subject_selection_info": best_subject_info
+        } if pd.notna(cal_subject_name) else None
+    }
     
-    return output
+    return {
+        "score": round(score, 2),
+        "university_details": university_details,
+        "calculation_details": calculation_details,
+        "total_contributions": len(calculation_details)
+    }
+
+
+def calScore_with_university_details(user_id: str) -> Dict:
+    """
+    Enhanced score calculation with comprehensive university details
+    """
+    user_data = get_user_data_fast(user_id)
+    if not user_data:
+        return {"error": "User not found", "user_id": user_id}
+    
+    results = []
+    user_info = {
+        "user_id": user_id,
+        "user_name": user_data.get("name"),
+        "user_gpax": user_data.get("gpax")
+    }
+    
+    # Check each of the 10 selections
+    for i in range(1, 11):
+        university = user_data.get(f"selection_{i}_university")
+        faculty = user_data.get(f"selection_{i}_faculty")
+        field = user_data.get(f"selection_{i}_field")
+        
+        selection_result = {
+            "selection_number": i,
+            "selection_data": {
+                "university": university,
+                "faculty": faculty,
+                "field": field
+            },
+            "status": "incomplete",
+            "score": None,
+            "university_details": None,
+            "calculation_details": None,
+            "message": ""
+        }
+        
+        if not (university and faculty and field):
+            selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
+            results.append(selection_result)
+            continue
+        
+        # Fast program lookup
+        program = find_program_fast(university, faculty, field)
+        
+        if program is None:
+            selection_result["status"] = "not_found"
+            selection_result["message"] = f"Program not found: {field} at {faculty}, {university}"
+            results.append(selection_result)
+            continue
+        
+        # Check GPAX requirement
+        gpax_req = program.get("gpax_req")
+        user_gpax = user_data.get("gpax", 0)
+        
+        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+            selection_result["status"] = "gpax_insufficient"
+            selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
+            selection_result["university_details"] = {
+                "university_name": program.get("University"),
+                "faculty_name": program.get("Faculty"),
+                "program_name": program.get("Program"),
+                "gpax_requirement": float(gpax_req),
+                "user_gpax": float(user_gpax)
+            }
+            results.append(selection_result)
+            continue
+        
+        # Calculate score with detailed information
+        try:
+            score_data = calculate_program_score_improved(user_data, program)
+            
+            selection_result.update({
+                "status": "calculated",
+                "score": score_data["score"],
+                "university_details": score_data["university_details"],
+                "calculation_details": score_data["calculation_details"],
+                "message": f"Score calculated successfully: {score_data['score']:.2f} points"
+            })
+            
+        except Exception as e:
+            selection_result["status"] = "error"
+            selection_result["message"] = f"Error calculating score: {str(e)}"
+        
+        results.append(selection_result)
+    
+    # Calculate summary statistics
+    calculated_results = [r for r in results if r["status"] == "calculated"]
+    valid_scores = [r["score"] for r in calculated_results if r["score"] is not None]
+    
+    summary = {
+        "total_selections": len([r for r in results if r["selection_data"]["university"]]),
+        "calculated_scores": len(calculated_results),
+        "failed_calculations": len([r for r in results if r["status"] == "error"]),
+        "gpax_insufficient": len([r for r in results if r["status"] == "gpax_insufficient"]),
+        "programs_not_found": len([r for r in results if r["status"] == "not_found"]),
+        "highest_score": max(valid_scores) if valid_scores else 0,
+        "lowest_score": min(valid_scores) if valid_scores else 0,
+        "average_score": sum(valid_scores) / len(valid_scores) if valid_scores else 0,
+        "recommended_programs": sorted(calculated_results, key=lambda x: x["score"], reverse=True)[:3]
+    }
+    
+    return {
+        "user_info": user_info,
+        "results": results,
+        "summary": summary,
+        "calculation_timestamp": datetime.now().isoformat()
+    }
+
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
@@ -483,19 +606,90 @@ def calScore_simple(user_id: str) -> Dict:
     }
 
 # Update the calculate_scores endpoint
-@router.post("/api/calculate_scores")
-async def calculate_scores(data: dict):
-    """Calculate scores with simple response"""
+@router.post("/api/calculate_scores_detailed")
+async def calculate_scores_detailed(data: dict):
+    """
+    Calculate scores with comprehensive university details and calculation breakdown
+    """
     user_id = data.get("userId")
     if not user_id:
         raise HTTPException(status_code=400, detail="userId is required")
     
     try:
-        results = calScore_simple(user_id)
+        results = calScore_with_university_details(user_id)
+        if "error" in results:
+            raise HTTPException(status_code=404, detail=results["error"])
         return results
     except Exception as e:
-        print(f"Error calculating scores: {e}")
+        print(f"Error calculating detailed scores: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
+
+
+# Additional endpoint for single program calculation with details
+@router.post("/api/calculate_single_program_detailed")
+async def calculate_single_program_detailed(data: dict):
+    """
+    Calculate score for a single program with detailed breakdown
+    """
+    user_id = data.get("userId")
+    university = data.get("university")
+    faculty = data.get("faculty")
+    field = data.get("field")
+    
+    if not all([user_id, university, faculty, field]):
+        raise HTTPException(
+            status_code=400, 
+            detail="userId, university, faculty, and field are required"
+        )
+    
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        program = find_program_fast(university, faculty, field)
+        if program is None:
+            raise HTTPException(status_code=404, detail="Program not found")
+        
+        # Check GPAX requirement
+        gpax_req = program.get("gpax_req")
+        user_gpax = user_data.get("gpax", 0)
+        
+        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+            return {
+                "status": "gpax_insufficient",
+                "message": f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})",
+                "university_details": {
+                    "university_name": program.get("University"),
+                    "faculty_name": program.get("Faculty"),
+                    "program_name": program.get("Program"),
+                    "gpax_requirement": float(gpax_req),
+                    "user_gpax": float(user_gpax)
+                }
+            }
+        
+        # Calculate score with detailed breakdown
+        score_data = calculate_program_score_improved(user_data, program)
+        
+        return {
+            "status": "success",
+            "user_info": {
+                "user_id": user_id,
+                "user_name": user_data.get("name"),
+                "user_gpax": user_data.get("gpax")
+            },
+            "score": score_data["score"],
+            "university_details": score_data["university_details"],
+            "calculation_details": score_data["calculation_details"],
+            "calculation_summary": {
+                "total_components": score_data["total_contributions"],
+                "final_score": score_data["score"]
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error calculating single program score: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate score: {str(e)}")
 
 # Add endpoint for getting user score summary
 @router.get("/api/user_scores/{user_id}")
