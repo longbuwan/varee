@@ -1,14 +1,47 @@
 from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import gspread.utils
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import os
 import pandas as pd
+import asyncio
+from datetime import datetime, timedelta
+import threading
+from functools import lru_cache
 
 app = FastAPI()
 router = APIRouter()
+
+# ---- CACHING AND DATA MANAGEMENT ----
+class DataCache:
+    def __init__(self, ttl_seconds=300):  # 5 minutes cache
+        self.ttl_seconds = ttl_seconds
+        self.last_update = None
+        self.user_data_df = None
+        self.university_data_df = None
+        self.user_data_dict = {}  # For O(1) user lookups
+        self.university_faculties = {}  # Cached faculty data
+        self.faculty_fields = {}  # Cached field data
+        self._lock = threading.Lock()
+        
+    def is_cache_valid(self):
+        if self.last_update is None:
+            return False
+        return datetime.now() - self.last_update < timedelta(seconds=self.ttl_seconds)
+    
+    def invalidate_cache(self):
+        with self._lock:
+            self.last_update = None
+            self.user_data_df = None
+            self.university_data_df = None
+            self.user_data_dict.clear()
+            self.university_faculties.clear()
+            self.faculty_fields.clear()
+
+# Global cache instance
+data_cache = DataCache()
 
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -17,79 +50,220 @@ creds_json = json.loads(creds_json_str)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE)
 CLIENT = gspread.authorize(creds)
 
+# Initialize sheets once
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
 worksheet = sheet.get_worksheet(0)  # User data sheet (no headers)
 datasheet = sheet.get_worksheet(1)  # University data sheet (has headers)
 
-def get_fresh_data():
-    """Get fresh data from sheets to avoid stale data issues"""
-    # For worksheet (user data) - no headers, so we need to handle differently
-    worksheet_values = worksheet.get_all_values()
-    
-    # For datasheet (university data) - has headers
-    datasheet_df = pd.DataFrame(datasheet.get_all_records())
-    
-    return worksheet_values, datasheet_df
+# Column definitions (define once)
+USER_COLUMNS = [
+    "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
+    "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
+    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
+    "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28",
+    # Selection columns for 10 universities
+    "selection_1_university", "selection_1_faculty", "selection_1_field",
+    "selection_2_university", "selection_2_faculty", "selection_2_field",
+    "selection_3_university", "selection_3_faculty", "selection_3_field",
+    "selection_4_university", "selection_4_faculty", "selection_4_field",
+    "selection_5_university", "selection_5_faculty", "selection_5_field",
+    "selection_6_university", "selection_6_faculty", "selection_6_field",
+    "selection_7_university", "selection_7_faculty", "selection_7_field",
+    "selection_8_university", "selection_8_faculty", "selection_8_field",
+    "selection_9_university", "selection_9_faculty", "selection_9_field",
+    "selection_10_university", "selection_10_faculty", "selection_10_field"
+]
 
-def find_user_data(user_id):
-    """Find user data by userId from worksheet"""
-    worksheet_values, _ = get_fresh_data()
-    
-    # Define the expected column structure for user data
-    user_columns = [
-        "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-        "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
-        "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
-        "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-        "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
-        "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28",
-        # Selection columns for 10 universities
-        "selection_1_university", "selection_1_faculty", "selection_1_field",
-        "selection_2_university", "selection_2_faculty", "selection_2_field",
-        "selection_3_university", "selection_3_faculty", "selection_3_field",
-        "selection_4_university", "selection_4_faculty", "selection_4_field",
-        "selection_5_university", "selection_5_faculty", "selection_5_field",
-        "selection_6_university", "selection_6_faculty", "selection_6_field",
-        "selection_7_university", "selection_7_faculty", "selection_7_field",
-        "selection_8_university", "selection_8_faculty", "selection_8_field",
-        "selection_9_university", "selection_9_faculty", "selection_9_field",
-        "selection_10_university", "selection_10_faculty", "selection_10_field"
-    ]
-    
-    # Find user row
-    for row in worksheet_values:
-        if row and len(row) > 0 and row[0] == user_id:
-            # Convert row to dictionary
-            user_data = {}
-            for i, col in enumerate(user_columns):
-                if i < len(row):
-                    value = row[i]
-                    # Convert to appropriate type
-                    if col in ["gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-                              "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
-                              "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
-                              "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-                              "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
-                              "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28"]:
-                        try:
-                            user_data[col] = float(value) if value else None
-                        except ValueError:
-                            user_data[col] = None
+NUMERIC_COLUMNS = {
+    "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
+    "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
+    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
+    "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28"
+}
+
+SCORE_COLUMNS = [
+    "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
+    "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88",
+    "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "a_lv_83", "tpat21",
+    "a_lv_70", "a_lv_66", "tgat1", "tpat5", "vnet_51", "tgat3", "tpat22",
+    "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
+    "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
+    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
+    "tpat11", "tpat12", "tpat13"
+]
+
+def load_and_cache_data():
+    """Load data from Google Sheets and cache it with optimized structure"""
+    with data_cache._lock:
+        if data_cache.is_cache_valid():
+            return
+        
+        try:
+            # Load user data
+            worksheet_values = worksheet.get_all_values()
+            
+            # Convert to DataFrame with proper column names
+            if worksheet_values:
+                # Ensure all rows have the same length
+                max_cols = len(USER_COLUMNS)
+                normalized_rows = []
+                for row in worksheet_values:
+                    if len(row) < max_cols:
+                        row.extend([''] * (max_cols - len(row)))
+                    normalized_rows.append(row[:max_cols])
+                
+                user_df = pd.DataFrame(normalized_rows, columns=USER_COLUMNS)
+                
+                # Convert numeric columns
+                for col in NUMERIC_COLUMNS:
+                    if col in user_df.columns:
+                        user_df[col] = pd.to_numeric(user_df[col], errors='coerce')
+                
+                data_cache.user_data_df = user_df
+                
+                # Create user lookup dictionary for O(1) access
+                data_cache.user_data_dict = {}
+                for _, row in user_df.iterrows():
+                    if row['userId']:
+                        data_cache.user_data_dict[row['userId']] = row.to_dict()
+            
+            # Load university data
+            university_records = datasheet.get_all_records()
+            data_cache.university_data_df = pd.DataFrame(university_records)
+            
+            # Pre-compute faculty and field mappings for faster lookups
+            data_cache.university_faculties.clear()
+            data_cache.faculty_fields.clear()
+            
+            if not data_cache.university_data_df.empty:
+                # Cache faculties by university
+                faculty_groups = data_cache.university_data_df.groupby('University')['Faculty'].apply(
+                    lambda x: x.dropna().unique().tolist()
+                ).to_dict()
+                data_cache.university_faculties = faculty_groups
+                
+                # Cache fields by university+faculty combination
+                for (university, faculty), group in data_cache.university_data_df.groupby(['University', 'Faculty']):
+                    key = f"{university}|{faculty}"
+                    # Use Program_shared if available, fallback to Program
+                    if 'Program_shared' in group.columns:
+                        combined_programs = group['Program_shared'].fillna(group['Program'])
                     else:
-                        user_data[col] = value if value else None
-                else:
-                    user_data[col] = None
-            return user_data
-    
-    return None
+                        combined_programs = group['Program']
+                    fields = combined_programs.dropna().unique().tolist()
+                    data_cache.faculty_fields[key] = fields
+            
+            data_cache.last_update = datetime.now()
+            
+        except Exception as e:
+            print(f"Error loading data: {e}")
+            raise
 
-def calScore(user_id):
-    """Calculate scores for a specific user's university selections"""
-    user_data = find_user_data(user_id)
+@lru_cache(maxsize=128)
+def get_cached_faculties(university: str) -> List[str]:
+    """Get faculties for a university with caching"""
+    load_and_cache_data()
+    return data_cache.university_faculties.get(university, [])
+
+@lru_cache(maxsize=256)
+def get_cached_fields(university: str, faculty: str) -> List[str]:
+    """Get fields for university+faculty with caching"""
+    load_and_cache_data()
+    key = f"{university}|{faculty}"
+    return data_cache.faculty_fields.get(key, [])
+
+def get_user_data_fast(user_id: str) -> Optional[Dict]:
+    """Fast user data lookup using cached dictionary"""
+    load_and_cache_data()
+    return data_cache.user_data_dict.get(user_id)
+
+def find_program_fast(university: str, faculty: str, field: str) -> Optional[pd.Series]:
+    """Fast program lookup using indexed DataFrame"""
+    load_and_cache_data()
+    
+    if data_cache.university_data_df is None or data_cache.university_data_df.empty:
+        return None
+    
+    # Use boolean indexing for faster lookup
+    mask = (
+        (data_cache.university_data_df["University"] == university) & 
+        (data_cache.university_data_df["Faculty"] == faculty) & 
+        (data_cache.university_data_df["Program"] == field)
+    )
+    
+    matched_programs = data_cache.university_data_df[mask]
+    
+    if matched_programs.empty:
+        return None
+    
+    return matched_programs.iloc[0]
+
+def calculate_program_score_optimized(user_data: Dict, program: pd.Series) -> float:
+    """Optimized score calculation"""
+    score = 0
+    
+    # Check if this program has special calculation type
+    cal_type = program.get("cal_type")
+    cal_subject_name = program.get("cal_subject_name")
+    
+    if pd.notna(cal_type) and pd.notna(cal_subject_name):
+        # Special calculation with subject selection
+        subject_specs = str(cal_subject_name).split()
+        best_subject_score = 0
+        best_subject = None
+        
+        for spec in subject_specs:
+            if "|" in spec:
+                # Group of subjects - pick the highest
+                subjects = spec.split("|")
+                for subj in subjects:
+                    user_score = user_data.get(subj)
+                    if user_score is not None and user_score > best_subject_score:
+                        best_subject_score = user_score
+                        best_subject = subj
+            else:
+                # Single subject
+                user_score = user_data.get(spec)
+                if user_score is not None and user_score > best_subject_score:
+                    best_subject_score = user_score
+                    best_subject = spec
+        
+        # Add best subject score with its weight
+        if best_subject:
+            weight = program.get(best_subject)
+            if pd.notna(weight):
+                score += best_subject_score * (float(weight) / 100)
+        
+        # Add other weighted scores (excluding special subjects)
+        for col in SCORE_COLUMNS:
+            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and col != best_subject:
+                program_weight = program.get(col)
+                user_score = user_data.get(col)
+                
+                if pd.notna(program_weight) and user_score is not None:
+                    score += user_score * (float(program_weight) / 100)
+    else:
+        # Regular calculation - vectorized operation where possible
+        for col in SCORE_COLUMNS:
+            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
+                program_weight = program.get(col)
+                user_score = user_data.get(col)
+                
+                if pd.notna(program_weight) and user_score is not None:
+                    score += user_score * (float(program_weight) / 100)
+    
+    return round(score, 2)
+
+def calScore_optimized(user_id: str) -> Dict:
+    """Optimized score calculation using cached data"""
+    user_data = get_user_data_fast(user_id)
     if not user_data:
         return {"error": "User not found"}
     
-    _, datasheet_df = get_fresh_data()
     results = []
     
     # Check each of the 10 selections
@@ -113,21 +287,14 @@ def calScore(user_id):
             results.append(selection_result)
             continue
         
-        # Find matching program in datasheet
-        matched_programs = datasheet_df[
-            (datasheet_df["University"] == university) & 
-            (datasheet_df["Faculty"] == faculty) & 
-            (datasheet_df["Program"] == field)
-        ]
+        # Fast program lookup
+        program = find_program_fast(university, faculty, field)
         
-        if matched_programs.empty:
+        if program is None:
             selection_result["message"] = "No matching program found"
             selection_result["status"] = "not_found"
             results.append(selection_result)
             continue
-        
-        # Get the first matching program
-        program = matched_programs.iloc[0]
         
         # Check GPAX requirement
         gpax_req = program.get("gpax_req")
@@ -141,7 +308,7 @@ def calScore(user_id):
         
         # Calculate score
         try:
-            score = calculate_program_score(user_data, program)
+            score = calculate_program_score_optimized(user_data, program)
             selection_result["score"] = score
             selection_result["status"] = "calculated"
             selection_result["message"] = f"Score calculated successfully: {score:.2f}"
@@ -153,88 +320,46 @@ def calScore(user_id):
     
     return {"user_id": user_id, "results": results}
 
-def calculate_program_score(user_data, program):
-    """Calculate score for a specific program"""
-    score = 0
-    calculation_details = []
+def upsert_user_data_optimized(worksheet, data):
+    """Optimized user data upsert with minimal sheet operations"""
+    # Get current user data from cache first
+    user_data = get_user_data_fast(data.userId)
     
-    # Define all possible score columns
-    score_columns = [
-        "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
-        "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88",
-        "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "a_lv_83", "tpat21",
-        "a_lv_70", "a_lv_66", "tgat1", "tpat5", "vnet_51", "tgat3", "tpat22",
-        "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
-        "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
-        "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
-        "tpat11", "tpat12", "tpat13"
-    ]
+    # Prepare new row data
+    new_row = [""] * len(USER_COLUMNS)
     
-    # Check if this program has special calculation type
-    cal_type = program.get("cal_type")
-    cal_subject_name = program.get("cal_subject_name")
+    # Set provided data
+    for i, col in enumerate(USER_COLUMNS):
+        if col.startswith("selection_"):
+            # Keep existing selection data
+            if user_data and col in user_data:
+                new_row[i] = str(user_data[col]) if user_data[col] is not None else ""
+        else:
+            val = getattr(data, col, None)
+            new_row[i] = str(val) if val is not None else ""
     
-    if pd.notna(cal_type) and pd.notna(cal_subject_name):
-        # Special calculation with subject selection
-        subject_specs = str(cal_subject_name).split()
-        best_subject_score = 0
-        best_subject = None
+    # Single sheet operation
+    if user_data:
+        # Update existing row - find row number from cache or search
+        all_values = worksheet.get_all_values()
+        row_index = None
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0 and row[0] == data.userId:
+                row_index = i + 1
+                break
         
-        for spec in subject_specs:
-            if "|" in spec:
-                # Group of subjects - pick the highest
-                subjects = spec.split("|")
-                group_scores = {}
-                for subj in subjects:
-                    user_score = user_data.get(subj)
-                    if user_score is not None:
-                        group_scores[subj] = float(user_score)
-                
-                if group_scores:
-                    best_subj = max(group_scores, key=group_scores.get)
-                    if group_scores[best_subj] > best_subject_score:
-                        best_subject_score = group_scores[best_subj]
-                        best_subject = best_subj
-            else:
-                # Single subject
-                user_score = user_data.get(spec)
-                if user_score is not None and float(user_score) > best_subject_score:
-                    best_subject_score = float(user_score)
-                    best_subject = spec
-        
-        # Add best subject score with its weight
-        if best_subject:
-            weight = program.get(best_subject)
-            if pd.notna(weight):
-                score += best_subject_score * (float(weight) / 100)
-                calculation_details.append(f"{best_subject}: {best_subject_score} × {weight}% = {best_subject_score * (float(weight) / 100)}")
-        
-        # Add other weighted scores (excluding special subjects and calculation columns)
-        for col in score_columns:
-            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and col != best_subject:
-                program_weight = program.get(col)
-                user_score = user_data.get(col)
-                
-                if pd.notna(program_weight) and user_score is not None:
-                    weighted_score = float(user_score) * (float(program_weight) / 100)
-                    score += weighted_score
-                    calculation_details.append(f"{col}: {user_score} × {program_weight}% = {weighted_score}")
-    
+        if row_index:
+            end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
+            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+            worksheet.update(cell_range, [new_row])
     else:
-        # Regular calculation - sum all weighted scores
-        for col in score_columns:
-            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
-                program_weight = program.get(col)
-                user_score = user_data.get(col)
-                
-                if pd.notna(program_weight) and user_score is not None:
-                    weighted_score = float(user_score) * (float(program_weight) / 100)
-                    score += weighted_score
-                    calculation_details.append(f"{col}: {user_score} × {program_weight}% = {weighted_score}")
+        # Add new row
+        worksheet.append_row(new_row)
     
-    return round(score, 2)
+    # Invalidate cache to force refresh
+    data_cache.invalidate_cache()
 
-# ---- PYDANTIC MODELS ----
+# ---- PYDANTIC MODELS ---- (unchanged)
 class UniversityRequest(BaseModel):
     name: str
     userId: Optional[str] = None
@@ -293,231 +418,110 @@ class MultipleSelectionsSubmission(BaseModel):
     name: str
     selections: List[UniversitySelection]
 
-# ---- UNIVERSITY DATA ENDPOINTS (datasheet) ----
+# ---- OPTIMIZED ENDPOINTS ----
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
-    """Get faculties for a university from datasheet"""
+    """Get faculties for a university (optimized with caching)"""
     try:
-        _, datasheet_df = get_fresh_data()
-        
-        # Filter by university name and faculty
-         university_data = datasheet_df[datasheet_df["University"] == data.name]
-        
-        if field_data.empty:
-            return {"faculties": []}  # Keep original response format
-         if university_data.empty:Add commentMore actions
-            return {"faculties": []}
-        # Get unique facultiesAdd commentMore actions
-        faculties = university_data["Faculty"].dropna().unique().tolist()
+        faculties = get_cached_faculties(data.name)
         return {"faculties": faculties}
-    except Exception as e:Add commentMore actions
+    except Exception as e:
         print(f"Error finding faculties: {e}")
         return {"error": f"Failed to find faculties: {str(e)}"}
 
 @router.post("/api/find_field")
 async def find_field(data: FacultyRequest):
-    """Get fields for a university and faculty from datasheet"""
+    """Get fields for a university and faculty (optimized with caching)"""
     try:
-        _, datasheet_df = get_fresh_data()
-        
-        # Filter by university name and faculty
-        field_data = datasheet_df[
-            (datasheet_df["University"] == data.name) & 
-            (datasheet_df["Faculty"] == data.faculty)
-        ]
-        
-        if field_data.empty:
-            return {"faculties": []}  # Keep original response format
-        
-        # Use Program_shared if available, fallback to Program
-        combined_programs = field_data["Program_shared"].fillna(field_data["Program"])
-        fields = combined_programs.dropna().unique().tolist()
-        
-        return {"faculties": fields}
+        fields = get_cached_fields(data.name, data.faculty)
+        return {"faculties": fields}  # Keep original response format
     except Exception as e:
         print(f"Error finding fields: {e}")
         return {"error": f"Failed to find fields: {str(e)}"}
-# ---- USER SCORE ENDPOINT (worksheet) ----
+
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
-    """Save user score data to worksheet"""
-    print("Received data:", data)
-
-    def upsert_user_data(worksheet, data):
-        # Get all current data
-        all_values = worksheet.get_all_values()
-        
-        # Define the complete column structure (no headers in worksheet)
-        columns = [
-            "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-            "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
-            "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
-            "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-            "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
-            "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28",
-            # Selection columns for 10 universities
-            "selection_1_university", "selection_1_faculty", "selection_1_field",
-            "selection_2_university", "selection_2_faculty", "selection_2_field",
-            "selection_3_university", "selection_3_faculty", "selection_3_field",
-            "selection_4_university", "selection_4_faculty", "selection_4_field",
-            "selection_5_university", "selection_5_faculty", "selection_5_field",
-            "selection_6_university", "selection_6_faculty", "selection_6_field",
-            "selection_7_university", "selection_7_faculty", "selection_7_field",
-            "selection_8_university", "selection_8_faculty", "selection_8_field",
-            "selection_9_university", "selection_9_faculty", "selection_9_field",
-            "selection_10_university", "selection_10_faculty", "selection_10_field"
-        ]
-
-        # Find existing row by userId
-        row_index = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == data.userId:
-                row_index = i + 1  # gspread uses 1-based indexing
-                break
-
-        # Prepare new row data
-        new_row = []
-        for col in columns:
-            if col.startswith("selection_"):
-                # Keep existing selection data if it exists
-                if row_index and len(all_values) > row_index - 1:
-                    existing_row = all_values[row_index - 1]
-                    col_index = columns.index(col)
-                    if col_index < len(existing_row):
-                        new_row.append(existing_row[col_index])
-                    else:
-                        new_row.append("")
-                else:
-                    new_row.append("")
-            else:
-                val = getattr(data, col, None)
-                new_row.append(str(val) if val is not None else "")
-
-        if row_index:
-            # Update existing row
-            print(f"Updating existing user at row {row_index}")
-            # Ensure we have enough columns
-            while len(new_row) < len(columns):
-                new_row.append("")
-            
-            # Update the row
-            end_col_letter = gspread.utils.rowcol_to_a1(1, len(columns))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
-            worksheet.update(cell_range, [new_row])
-        else:
-            # Add new row
-            print("Adding new user row")
-            # Ensure we have the right number of columns
-            while len(new_row) < len(columns):
-                new_row.append("")
-            worksheet.append_row(new_row)
-
+    """Save user score data (optimized)"""
     try:
-        upsert_user_data(worksheet, data)
+        upsert_user_data_optimized(worksheet, data)
         return {"message": "Data saved to Google Sheets successfully"}
     except Exception as e:
         print(f"Error saving data: {e}")
         return {"error": f"Failed to save data: {str(e)}"}
 
-# ---- MULTIPLE SELECTIONS ENDPOINT ----
 @router.post("/api/submit_multiple_selections")
 async def submit_multiple_selections(data: MultipleSelectionsSubmission):
-    """Save multiple university selections for a user"""
-    print("Received multiple selections:", data)
-
+    """Save multiple university selections (optimized)"""
     try:
         # Get existing user data
-        all_values = worksheet.get_all_values()
+        user_data = get_user_data_fast(data.userId)
         
-        # Find existing row by userId
-        row_index = None
-        existing_row = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == data.userId:
-                row_index = i + 1  # gspread uses 1-based indexing
-                existing_row = row
-                break
-
-        # Define the complete column structure
-        columns = [
-            "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-            "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
-            "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
-            "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-            "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
-            "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28",
-            # Selection columns for 10 universities
-            "selection_1_university", "selection_1_faculty", "selection_1_field",
-            "selection_2_university", "selection_2_faculty", "selection_2_field",
-            "selection_3_university", "selection_3_faculty", "selection_3_field",
-            "selection_4_university", "selection_4_faculty", "selection_4_field",
-            "selection_5_university", "selection_5_faculty", "selection_5_field",
-            "selection_6_university", "selection_6_faculty", "selection_6_field",
-            "selection_7_university", "selection_7_faculty", "selection_7_field",
-            "selection_8_university", "selection_8_faculty", "selection_8_field",
-            "selection_9_university", "selection_9_faculty", "selection_9_field",
-            "selection_10_university", "selection_10_faculty", "selection_10_field"
-        ]
-
         # Prepare new row data
-        new_row = [""] * len(columns)
+        new_row = [""] * len(USER_COLUMNS)
         
         # Set basic user info
-        new_row[0] = data.userId  # userId
-        new_row[1] = data.name    # name
+        new_row[0] = data.userId
+        new_row[1] = data.name
         
         # Copy existing score data if available
-        if existing_row:
-            for i in range(2, 37):  # Score columns (gpax through gpa28)
-                if i < len(existing_row):
-                    new_row[i] = existing_row[i]
+        if user_data:
+            for i, col in enumerate(USER_COLUMNS[2:37], 2):  # Score columns
+                if col in user_data and user_data[col] is not None:
+                    new_row[i] = str(user_data[col])
 
         # Add selections
         for idx, selection in enumerate(data.selections):
-            if idx < 10:  # Only handle first 10 selections
-                base_idx = 37 + (idx * 3)  # Starting index for selection columns
+            if idx < 10:
+                base_idx = 37 + (idx * 3)
                 new_row[base_idx] = selection.university
                 new_row[base_idx + 1] = selection.faculty
                 new_row[base_idx + 2] = selection.field
 
-        if row_index:
+        # Single sheet operation
+        if user_data:
             # Update existing row
-            print(f"Updating existing user selections at row {row_index}")
-            end_col_letter = gspread.utils.rowcol_to_a1(1, len(columns))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
-            worksheet.update(cell_range, [new_row])
+            all_values = worksheet.get_all_values()
+            row_index = None
+            for i, row in enumerate(all_values):
+                if row and len(row) > 0 and row[0] == data.userId:
+                    row_index = i + 1
+                    break
+            
+            if row_index:
+                end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
+                cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+                worksheet.update(cell_range, [new_row])
         else:
-            # Add new row
-            print("Adding new user with selections")
             worksheet.append_row(new_row)
 
+        # Invalidate cache
+        data_cache.invalidate_cache()
+        
         return {"message": f"Successfully saved {len(data.selections)} university selections"}
 
     except Exception as e:
         print(f"Error saving multiple selections: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save selections: {str(e)}")
 
-# ---- SCORE CALCULATION ENDPOINT ----
 @router.post("/api/calculate_scores")
 async def calculate_scores(data: dict):
-    """Calculate scores for a user's university selections"""
+    """Calculate scores (optimized)"""
     user_id = data.get("userId")
     if not user_id:
         raise HTTPException(status_code=400, detail="userId is required")
     
     try:
-        results = calScore(user_id)
+        results = calScore_optimized(user_id)
         return results
     except Exception as e:
         print(f"Error calculating scores: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
 
-# ---- GET USER DATA ENDPOINT ----
 @router.get("/api/user_data/{user_id}")
 async def get_user_data(user_id: str):
-    """Get user data including scores and selections"""
+    """Get user data (optimized)"""
     try:
-        user_data = find_user_data(user_id)
+        user_data = get_user_data_fast(user_id)
         if not user_data:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -525,5 +529,17 @@ async def get_user_data(user_id: str):
     except Exception as e:
         print(f"Error getting user data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get user data: {str(e)}")
+
+# ---- CACHE MANAGEMENT ENDPOINTS ----
+@router.post("/api/refresh_cache")
+async def refresh_cache():
+    """Manually refresh the data cache"""
+    try:
+        data_cache.invalidate_cache()
+        load_and_cache_data()
+        return {"message": "Cache refreshed successfully"}
+    except Exception as e:
+        print(f"Error refreshing cache: {e}")
+        return {"error": f"Failed to refresh cache: {str(e)}"}
 
 app.include_router(router)
