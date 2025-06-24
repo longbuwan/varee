@@ -18,8 +18,8 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, SCOPE)
 CLIENT = gspread.authorize(creds)
 
 sheet = CLIENT.open_by_key("1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY")
-worksheet = sheet.get_worksheet(0)  # First worksheet (index starts at 0)
-datasheet = sheet.get_worksheet(1)
+worksheet = sheet.get_worksheet(0)  # User data sheet
+datasheet = sheet.get_worksheet(1)  # University data sheet
 
 def get_fresh_data():
     """Get fresh data from sheets to avoid stale data issues"""
@@ -139,7 +139,15 @@ def calScore(user_id):
     
     return output
 
-# ---- FASTAPI MODEL ----
+# ---- PYDANTIC MODELS ----
+class UniversityRequest(BaseModel):
+    name: str
+    userId: Optional[str] = None
+
+class FacultyRequest(BaseModel):
+    name: str
+    faculty: str
+
 class ScoreSubmission(BaseModel):
     userId: Optional[str]
     name: Optional[str]
@@ -183,8 +191,54 @@ class ScoreSubmission(BaseModel):
     gpa27: Optional[float] = None
     gpa28: Optional[float] = None
 
-@router.post("/api/save-score")  # Fixed route name
+# ---- UNIVERSITY DATA ENDPOINTS (datasheet) ----
+@router.post("/api/find_faculty")
+async def find_faculty(data: UniversityRequest):
+    """Get faculties for a university from datasheet"""
+    try:
+        datasheet_df = pd.DataFrame(datasheet.get_all_records())
+        
+        # Filter by university name
+        university_data = datasheet_df[datasheet_df["university_name"] == data.name]
+        
+        if university_data.empty:
+            return {"faculties": []}
+        
+        # Get unique faculties
+        faculties = university_data["faculty_name"].dropna().unique().tolist()
+        
+        return {"faculties": faculties}
+    except Exception as e:
+        print(f"Error finding faculties: {e}")
+        return {"error": f"Failed to find faculties: {str(e)}"}
+
+@router.post("/api/find_field")
+async def find_field(data: FacultyRequest):
+    """Get fields for a university and faculty from datasheet"""
+    try:
+        datasheet_df = pd.DataFrame(datasheet.get_all_records())
+        
+        # Filter by university name and faculty
+        field_data = datasheet_df[
+            (datasheet_df["university_name"] == data.name) & 
+            (datasheet_df["faculty_name"] == data.faculty)
+        ]
+        
+        if field_data.empty:
+            return {"faculties": []}  # Keep original response format
+        
+        # Get unique fields/programs
+        fields = field_data["program_name"].dropna().unique().tolist()
+        
+        return {"faculties": fields}  # Keep original response format
+    except Exception as e:
+        print(f"Error finding fields: {e}")
+        return {"error": f"Failed to find fields: {str(e)}"}
+
+# ---- USER SCORE ENDPOINT (worksheet) ----
+@router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
+    """Save user score data to worksheet"""
     print("Received data:", data)
 
     def upsert_user_data(worksheet, data):
