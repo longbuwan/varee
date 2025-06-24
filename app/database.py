@@ -295,7 +295,7 @@ class MultipleSelectionsSubmission(BaseModel):
 
 # ---- UNIVERSITY DATA ENDPOINTS (datasheet) ----
 @router.post("/api/find_faculty")
-aasync def find_field(data: FacultyRequest):
+async def find_field(data: FacultyRequest):
     """Get fields for a university and faculty from datasheet"""
     try:
         _, datasheet_df = get_fresh_data()
