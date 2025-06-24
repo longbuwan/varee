@@ -329,14 +329,14 @@ async def find_field(data: FacultyRequest):
         if field_data.empty:
             return {"faculties": []}  # Keep original response format
         
-        # Get unique fields/programs
-        fields = field_data["Program"].dropna().unique().tolist()
+        # Use Program_shared if available, fallback to Program
+        combined_programs = field_data["Program_shared"].fillna(field_data["Program"])
+        fields = combined_programs.dropna().unique().tolist()
         
-        return {"faculties": fields}  # Keep original response format
+        return {"faculties": fields}
     except Exception as e:
         print(f"Error finding fields: {e}")
         return {"error": f"Failed to find fields: {str(e)}"}
-
 # ---- USER SCORE ENDPOINT (worksheet) ----
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
