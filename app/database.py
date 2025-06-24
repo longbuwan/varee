@@ -160,46 +160,6 @@ class ScoreSubmission(BaseModel):
   
 
 @router.post("/api/find_faculty")
-async def find_faculty(data: ScoreSubmission):
-    values = datasheet.get_all_values()
-
-    # Skip header row
-    rowgits = values[1:]
-
-    target_university = data.name.strip().lower()
-    faculty_set = set()
-
-    for row in rows:
-        if len(row) >= 3:
-            university_name = row[1].strip().lower()
-            faculty_name = row[2].strip()
-
-            if university_name == target_university and faculty_name:
-                faculty_set.add(faculty_name)
-
-    return {"faculties": sorted(faculty_set)}
-@router.post("/api/find_field")
-async def find_faculty(data: ScoreSubmission):
-    values = datasheet.get_all_values()
-
-    # Skip header row
-    rows = values[1:]
-
-    target_university = data.name.strip().lower()
-    target_faculty = data.faculty.strip().lower()
-
-    field_set = set()
-
-    for row in rows:
-        if len(row) >= 3:
-            university_name = row[1].strip().lower()
-            faculty_name = row[2].strip()
-            field_name = row[3].strip
-            if university_name == target_university and faculty_name == target_faculty and field_name:
-                field_set.add(field_name)
-
-    return {"faculties": sorted(field_set)}
-@router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
     print("Received data:", data)
 
@@ -207,8 +167,13 @@ async def save_score(data: ScoreSubmission):
         all_values = worksheet.get_all_values()
 
         columns = [
-          "gpax","tgat1","tgat2","tgat3","tpat11","tpat12","tpat13","tpat21","tpat22","tpat23","tpat3","tpat4","tpat5","a_lv_61","a_lv_62","a_lv_63","a_lv_64","a_lv_65","a_lv_66","a_lv_70","a_lv_81","a_lv_82","a_lv_83","a_lv_84","a_lv_85","a_lv_86","a_lv_87","a_lv_88","a_lv_89","gpa21","gpa22","gpa23","gpa24","gpa26","gpa27","gpa28",
-
+            "userId", "name",  # Ensure userId and name are the first two columns
+            "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+            "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+            "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
+            "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
+            "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89",
+            "gpa21", "gpa22", "gpa23", "gpa24", "gpa26", "gpa27", "gpa28",
         ]
 
         # Find existing row by userId
@@ -218,36 +183,20 @@ async def save_score(data: ScoreSubmission):
                 row_index = i + 1  # gspread is 1-indexed
                 break
 
+        # Prepare new row
+        new_row = []
+        for col in columns:
+            val = getattr(data, col, '')  # Use '' if the attribute is missing
+            new_row.append(str(val) if val is not None else '')
+
         if row_index:
-            old_row = all_values[row_index - 1]
-            if len(old_row) < len(columns):
-                old_row += [''] * (len(columns) - len(old_row))
-
-            new_row = []
-            for idx, col in enumerate(columns):
-                if col == "userId":
-                    new_row.append(data.userId)
-                elif col == "name":
-                    new_row.append(data.name)
-                else:
-                    new_val = getattr(data, col)
-                    new_row.append(str(new_val) if new_val is not None else '')
-
             cell_range = f"A{row_index}:{gspread.utils.rowcol_to_a1(row_index, len(columns))}"
             worksheet.update(cell_range, [new_row])
-
         else:
-            # Append new row
-            new_row = [data.userId, data.name]
-            for col in columns[2:]:
-                val = getattr(data, col)
-                new_row.append(str(val) if val is not None else '')
             worksheet.append_row(new_row)
 
     upsert_user_data(worksheet, data)
     return {"message": "Data saved to Google Sheets successfully"}
-
-    
 
 
 
