@@ -146,15 +146,28 @@ def load_and_cache_data():
                 ).to_dict()
                 data_cache.university_faculties = faculty_groups
                 
-                # Cache fields by university+faculty combination
+                # Cache fields by university+faculty combination with Program:Program_shared format
                 for (university, faculty), group in data_cache.university_data_df.groupby(['University', 'Faculty']):
                     key = f"{university}|{faculty}"
-                    # Use Program_shared if available, fallback to Program
-                    if 'Program_shared' in group.columns:
-                        combined_programs = group['Program_shared'].fillna(group['Program'])
-                    else:
-                        combined_programs = group['Program']
-                    fields = combined_programs.dropna().unique().tolist()
+                    fields = []
+                    
+                    for _, row in group.iterrows():
+                        program = row.get('Program', '')
+                        program_shared = row.get('Program_shared', '')
+                        
+                        # Skip empty programs
+                        if pd.isna(program) or str(program).strip() == '':
+                            continue
+                            
+                        # Format: Program:Program_shared
+                        if pd.notna(program_shared) and str(program_shared).strip() != '':
+                            field_display = f"{program}:{program_shared}"
+                        else:
+                            field_display = str(program)
+                        
+                        if field_display not in fields:
+                            fields.append(field_display)
+                    
                     data_cache.faculty_fields[key] = fields
             
             data_cache.last_update = datetime.now()
@@ -188,11 +201,14 @@ def find_program_fast(university: str, faculty: str, field: str) -> Optional[pd.
     if data_cache.university_data_df is None or data_cache.university_data_df.empty:
         return None
     
+    # Extract the program name from field (remove :Program_shared part if present)
+    program_name = field.split(':')[0] if ':' in field else field
+    
     # Use boolean indexing for faster lookup
     mask = (
         (data_cache.university_data_df["University"] == university) & 
         (data_cache.university_data_df["Faculty"] == faculty) & 
-        (data_cache.university_data_df["Program"] == field)
+        (data_cache.university_data_df["Program"] == program_name)
     )
     
     matched_programs = data_cache.university_data_df[mask]
