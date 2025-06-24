@@ -295,24 +295,35 @@ class MultipleSelectionsSubmission(BaseModel):
 
 # ---- UNIVERSITY DATA ENDPOINTS (datasheet) ----
 @router.post("/api/find_faculty")
-async def find_faculty(data: UniversityRequest):
-    """Get faculties for a university from datasheet"""
+aasync def find_field(data: FacultyRequest):
+    """Get fields for a university and faculty from datasheet"""
     try:
         _, datasheet_df = get_fresh_data()
         
-        # Filter by university name
-        university_data = datasheet_df[datasheet_df["University"] == data.name]
+        # Filter by university name and faculty
+        field_data = datasheet_df[
+            (datasheet_df["University"] == data.name) & 
+            (datasheet_df["Faculty"] == data.faculty)
+        ]
         
-        if university_data.empty:
-            return {"faculties": []}
+        if field_data.empty:
+            return {"faculties": []}  # Keep original response format
         
-        # Get unique faculties
-        faculties = university_data["Faculty"].dropna().unique().tolist()
+        # Combine both Program and Program_shared columns
+        programs = field_data["Program"].dropna().astype(str)
+        program_shared = field_data["Program_shared"].dropna().astype(str)
         
-        return {"faculties": faculties}
+        # Concatenate both lists and remove duplicates
+        all_programs = pd.concat([programs, program_shared]).drop_duplicates().tolist()
+        
+        # Join with ":"
+        joined_programs = ":".join(all_programs)
+        
+        return {"faculties": joined_programs}
+    
     except Exception as e:
-        print(f"Error finding faculties: {e}")
-        return {"error": f"Failed to find faculties: {str(e)}"}
+        print(f"Error finding fields: {e}")
+        return {"error": f"Failed to find fields: {str(e)}"}
 
 @router.post("/api/find_field")
 async def find_field(data: FacultyRequest):
