@@ -43,6 +43,114 @@ class DataCache:
 # Global cache instance
 data_cache = DataCache()
 
+
+def calScore(last_row, datasheet_df):
+    """
+    Calculate admission score based on university requirements
+    
+    Args:
+        last_row: pandas Series containing student data
+        datasheet_df: pandas DataFrame containing university requirements
+    
+    Returns:
+        list: List of calculated scores or error messages
+    """
+    import pandas as pd
+    
+    output = []
+    
+    # Get student information
+    id_val = last_row["ID"]
+    is_duplicate = int(last_row["Is_Duplicated_ID"])
+    
+    # Find matching university requirements
+    if is_duplicate == 0:
+        matched_df = datasheet_df[datasheet_df["ID"] == id_val]
+    else:
+        program_shared = last_row["Program_shared"]
+        matched_df = datasheet_df[
+            (datasheet_df["ID"] == id_val) & 
+            (datasheet_df["Program_shared"] == program_shared)
+        ]
+    
+    if matched_df.empty:
+        output.append("No matching program found")
+        return output
+    
+    match_row = matched_df.iloc[0]
+    
+    # Check GPAX requirement
+    if last_row["gpax"] < match_row["gpax_req"]:
+        output.append("gpax score does not match with the requirement")
+        return output
+    
+    # Define all possible score columns
+    target_columns = [
+        "tgat", "tpat3", "a_lv_61", "a_lv_64", "a_lv_65", "a_lv_63", "a_lv_62", "a_lv_82",
+        "tpat4", "a_lv_81", "a_lv_86", "tgat2", "a_lv_89", "a_lv_88", "cal_subject_name",
+        "a_lv_84", "gpax", "a_lv_87", "a_lv_85", "cal_score_sum", "a_lv_83", "tpat21",
+        "a_lv_70", "a_lv_66", "tgat1", "tpat5", "cal_type", "vnet_51", "tgat3", "tpat22",
+        "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
+        "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
+        "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
+        "tpat11", "tpat12", "tpat13"
+    ]
+    
+    # Get requirements for columns that have values
+    score_req = {col: match_row[col] for col in target_columns 
+                if pd.notnull(match_row.get(col)) and col not in ["cal_subject_name", "cal_type"]}
+    
+    product_sum = 0.0
+    highest_score = 0.0
+    
+    # Handle special calculation type if specified
+    if pd.notnull(match_row.get("cal_type")):
+        subject_specs = str(match_row.get("cal_subject_name", "")).split()
+        score_dict = {}
+        
+        for spec in subject_specs:
+            if "|" in spec:
+                # Handle grouped subjects (take highest)
+                group = spec.split("|")
+                group_values = {
+                    subj: last_row.get(subj)  # Fixed: was 'row', should be 'last_row'
+                    for subj in group
+                    if pd.notnull(last_row.get(subj))
+                }
+                if group_values:
+                    top_subject = max(group_values, key=group_values.get)
+                    score_dict[top_subject] = group_values[top_subject]
+            else:
+                val = last_row.get(spec)  # Fixed: was 'match_row', should be 'last_row'
+                if pd.notnull(val):
+                    score_dict[spec] = val
+        
+        if score_dict:
+            best_subject = max(score_dict, key=score_dict.get)
+            highest_score = score_dict[best_subject]
+            # Get the weight for this subject from cal_score_sum
+            subject_weight = match_row.get("cal_score_sum", 0)
+            if pd.notnull(subject_weight):
+                highest_score = highest_score * (float(subject_weight) / 100)
+            print(f"Highest Score: {highest_score} (from {best_subject})")
+        else:
+            output.append("Require more information")
+            return output
+    
+    # Calculate weighted scores for other columns
+    for col, datasheet_value in score_req.items():
+        worksheet_value = last_row.get(col)
+        
+        if pd.notnull(worksheet_value) and pd.notnull(datasheet_value):
+            product = float(worksheet_value) * (float(datasheet_value) / 100)
+            product_sum += product
+            print(f"{col}: {worksheet_value} × {datasheet_value}% = {product}")
+    
+    # Final score calculation
+    total_score = product_sum + highest_score
+    output.append(total_score)
+    
+    return output
 # ---- SETUP GOOGLE SHEETS ----
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
