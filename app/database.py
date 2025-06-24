@@ -325,9 +325,8 @@ def find_program_fast(university: str, faculty: str, field: str) -> Optional[pd.
         return None
     
     return matched_programs.iloc[0]
-
-def calculate_program_score_optimized(user_data: Dict, program: pd.Series) -> float:
-    """Optimized score calculation"""
+def calculate_program_score_simple(user_data: Dict, program: pd.Series) -> Dict:
+    """Simple score calculation with clean result"""
     score = 0
     
     # Check if this program has special calculation type
@@ -358,7 +357,7 @@ def calculate_program_score_optimized(user_data: Dict, program: pd.Series) -> fl
         
         # Add best subject score with its weight
         if best_subject:
-            weight = program.get(best_subject)
+            weight = program.get("cal_score_sum", 0)
             if pd.notna(weight):
                 score += best_subject_score * (float(weight) / 100)
         
@@ -371,7 +370,7 @@ def calculate_program_score_optimized(user_data: Dict, program: pd.Series) -> fl
                 if pd.notna(program_weight) and user_score is not None:
                     score += user_score * (float(program_weight) / 100)
     else:
-        # Regular calculation - vectorized operation where possible
+        # Regular calculation
         for col in SCORE_COLUMNS:
             if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
                 program_weight = program.get(col)
@@ -380,8 +379,186 @@ def calculate_program_score_optimized(user_data: Dict, program: pd.Series) -> fl
                 if pd.notna(program_weight) and user_score is not None:
                     score += user_score * (float(program_weight) / 100)
     
-    return round(score, 2)
+    return {
+        "score": round(score, 2),
+        "program_id": program.get("ID"),
+        "program_name": program.get("Program"),
+        "university": program.get("University"),
+        "faculty": program.get("Faculty")
+    }
 
+def calScore_simple(user_id: str) -> Dict:
+    """Simple score calculation returning clean results"""
+    user_data = get_user_data_fast(user_id)
+    if not user_data:
+        return {"error": "User not found", "user_id": user_id}
+    
+    results = []
+    
+    # Check each of the 10 selections
+    for i in range(1, 11):
+        university = user_data.get(f"selection_{i}_university")
+        faculty = user_data.get(f"selection_{i}_faculty")
+        field = user_data.get(f"selection_{i}_field")
+        
+        if not (university and faculty and field):
+            results.append({
+                "selection": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "incomplete",
+                "score": None,
+                "message": "Selection incomplete"
+            })
+            continue
+        
+        # Fast program lookup
+        program = find_program_fast(university, faculty, field)
+        
+        if program is None:
+            results.append({
+                "selection": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "not_found",
+                "score": None,
+                "message": "Program not found"
+            })
+            continue
+        
+        # Check GPAX requirement
+        gpax_req = program.get("gpax_req")
+        user_gpax = user_data.get("gpax", 0)
+        
+        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+            results.append({
+                "selection": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "gpax_insufficient",
+                "score": None,
+                "message": f"GPAX too low (need {gpax_req}, have {user_gpax})",
+                "gpax_required": float(gpax_req),
+                "gpax_current": float(user_gpax)
+            })
+            continue
+        
+        # Calculate score
+        try:
+            score_data = calculate_program_score_simple(user_data, program)
+            results.append({
+                "selection": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "calculated",
+                "score": score_data["score"],
+                "program_id": score_data["program_id"],
+                "program_name": score_data["program_name"],
+                "message": f"Score: {score_data['score']}"
+            })
+        except Exception as e:
+            results.append({
+                "selection": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "error",
+                "score": None,
+                "message": f"Calculation error: {str(e)}"
+            })
+    
+    return {
+        "user_id": user_id,
+        "user_name": user_data.get("name"),
+        "results": results,
+        "summary": {
+            "total_selections": len([r for r in results if r["university"]]),
+            "calculated_scores": len([r for r in results if r["status"] == "calculated"]),
+            "highest_score": max([r["score"] for r in results if r["score"] is not None], default=0)
+        }
+    }
+
+# Update the calculate_scores endpoint
+@router.post("/api/calculate_scores")
+async def calculate_scores(data: dict):
+    """Calculate scores with simple response"""
+    user_id = data.get("userId")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="userId is required")
+    
+    try:
+        results = calScore_simple(user_id)
+        return results
+    except Exception as e:
+        print(f"Error calculating scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
+
+# Add endpoint for getting user score summary
+@router.get("/api/user_scores/{user_id}")
+async def get_user_scores(user_id: str):
+    """Get calculated scores for a user"""
+    try:
+        results = calScore_simple(user_id)
+        return results
+    except Exception as e:
+        print(f"Error getting user scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get scores: {str(e)}")
+
+# Add endpoint to calculate score for specific program
+@router.post("/api/calculate_program_score")
+async def calculate_program_score(data: dict):
+    """Calculate score for a specific program"""
+    user_id = data.get("userId")
+    university = data.get("university")
+    faculty = data.get("faculty")
+    field = data.get("field")
+    
+    if not all([user_id, university, faculty, field]):
+        raise HTTPException(status_code=400, detail="userId, university, faculty, and field are required")
+    
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        program = find_program_fast(university, faculty, field)
+        if program is None:
+            raise HTTPException(status_code=404, detail="Program not found")
+        
+        # Check GPAX requirement
+        gpax_req = program.get("gpax_req")
+        user_gpax = user_data.get("gpax", 0)
+        
+        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+            return {
+                "status": "gpax_insufficient",
+                "message": f"GPAX too low (need {gpax_req}, have {user_gpax})",
+                "score": None,
+                "gpax_required": float(gpax_req),
+                "gpax_current": float(user_gpax)
+            }
+        
+        # Calculate score
+        score_data = calculate_program_score_simple(user_data, program)
+        
+        return {
+            "status": "success",
+            "score": score_data["score"],
+            "program_id": score_data["program_id"],
+            "program_name": score_data["program_name"],
+            "university": university,
+            "faculty": faculty,
+            "field": field
+        }
+        
+    except Exception as e:
+        print(f"Error calculating program score: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate score: {str(e)}")
+        
 def calScore_optimized(user_id: str) -> Dict:
     """Optimized score calculation using cached data"""
     user_data = get_user_data_fast(user_id)
