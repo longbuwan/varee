@@ -63,6 +63,50 @@ SCORE_COLUMNS = [
     "tpat11", "tpat12", "tpat13"
 ]
 
+# Numeric columns for university data that need conversion
+UNIVERSITY_NUMERIC_COLUMNS = [
+    "gpax_req", "projected_min_score_68_from_67", "คะแนนต่ำสุด_67", 
+    "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", "cal_score_sum"
+] + SCORE_COLUMNS
+
+# ---- HELPER FUNCTIONS ----
+def safe_float_conversion(value, default=None):
+    """Safely convert a value to float, returning default if conversion fails"""
+    if value is None or pd.isna(value):
+        return default
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+            if value == "":
+                return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+def safe_numeric_comparison(val1, val2, operator='<'):
+    """Safely compare two values after converting to float"""
+    try:
+        num1 = safe_float_conversion(val1)
+        num2 = safe_float_conversion(val2)
+        
+        if num1 is None or num2 is None:
+            return False
+            
+        if operator == '<':
+            return num1 < num2
+        elif operator == '>':
+            return num1 > num2
+        elif operator == '<=':
+            return num1 <= num2
+        elif operator == '>=':
+            return num1 >= num2
+        elif operator == '==':
+            return num1 == num2
+        else:
+            return False
+    except:
+        return False
+
 # ---- DATA CACHE CLASS ----
 class DataCache:
     def __init__(self, ttl_seconds=Config.CACHE_TTL_SECONDS):
@@ -156,8 +200,8 @@ def get_required_score_columns(program: pd.Series) -> List[str]:
     # Add regular score columns that have weights
     for col in SCORE_COLUMNS:
         if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
-            program_weight = program.get(col)
-            if pd.notna(program_weight) and float(program_weight) > 0:
+            program_weight = safe_float_conversion(program.get(col))
+            if program_weight is not None and program_weight > 0:
                 required_columns.append(col)
     
     return list(set(required_columns))  # Remove duplicates
@@ -188,7 +232,7 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
         # Check if this program has special calculation type
         cal_type = program.get("cal_type")
         cal_subject_name = program.get("cal_subject_name")
-        cal_score_sum = program.get("cal_score_sum")
+        cal_score_sum = safe_float_conversion(program.get("cal_score_sum"))
         
         if pd.notna(cal_type) and pd.notna(cal_subject_name):
             # Special calculation with subject selection
@@ -202,20 +246,20 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
                     # Group of subjects - pick the highest
                     subjects = spec.split("|")
                     for subj in subjects:
-                        user_score = user_data.get(subj)
+                        user_score = safe_float_conversion(user_data.get(subj))
                         if user_score is not None and user_score > best_subject_score:
                             best_subject_score = user_score
                             best_subject = subj
                 else:
                     # Single subject
-                    user_score = user_data.get(spec)
+                    user_score = safe_float_conversion(user_data.get(spec))
                     if user_score is not None and user_score > best_subject_score:
                         best_subject_score = user_score
                         best_subject = spec
             
             # Add best subject score with its weight
-            if best_subject and pd.notna(cal_score_sum):
-                weight = float(cal_score_sum) / 100
+            if best_subject and cal_score_sum is not None:
+                weight = cal_score_sum / 100
                 contribution = best_subject_score * weight
                 score += contribution
                 score_breakdown.append({
@@ -230,11 +274,11 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
                 if (col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and 
                     col != best_subject):
                     
-                    program_weight = program.get(col)
-                    user_score = user_data.get(col)
+                    program_weight = safe_float_conversion(program.get(col))
+                    user_score = safe_float_conversion(user_data.get(col))
                     
-                    if pd.notna(program_weight) and user_score is not None:
-                        weight = float(program_weight) / 100
+                    if program_weight is not None and user_score is not None and program_weight > 0:
+                        weight = program_weight / 100
                         contribution = user_score * weight
                         score += contribution
                         score_breakdown.append({
@@ -247,11 +291,11 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
             # Regular calculation
             for col in SCORE_COLUMNS:
                 if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
-                    program_weight = program.get(col)
-                    user_score = user_data.get(col)
+                    program_weight = safe_float_conversion(program.get(col))
+                    user_score = safe_float_conversion(user_data.get(col))
                     
-                    if pd.notna(program_weight) and user_score is not None:
-                        weight = float(program_weight) / 100
+                    if program_weight is not None and user_score is not None and program_weight > 0:
+                        weight = program_weight / 100
                         contribution = user_score * weight
                         score += contribution
                         score_breakdown.append({
@@ -322,6 +366,14 @@ def load_and_cache_data():
             # Load university data
             university_records = datasheet.get_all_records()
             data_cache.university_data_df = pd.DataFrame(university_records)
+            
+            # Convert numeric columns for university data
+            if not data_cache.university_data_df.empty:
+                for col in UNIVERSITY_NUMERIC_COLUMNS:
+                    if col in data_cache.university_data_df.columns:
+                        data_cache.university_data_df[col] = pd.to_numeric(
+                            data_cache.university_data_df[col], errors='coerce'
+                        )
             
             # Pre-compute mappings
             if not data_cache.university_data_df.empty:
@@ -402,101 +454,6 @@ def find_program_fast(university: str, faculty: str, field: str) -> Optional[pd.
         return None
     
     return matched_programs.iloc[0]
-
-def calculate_user_scores(user_id: str) -> Dict[str, Any]:
-    """Calculate scores for all user selections"""
-    user_data = get_user_data_fast(user_id)
-    if not user_data:
-        return {"error": "User not found", "user_id": user_id}
-    
-    results = []
-    
-    # Check each of the 10 selections
-    for i in range(1, 11):
-        university = user_data.get("university"+str(i))
-        faculty = user_data.get("faculty"+str(i))
-        field = user_data.get("program"+str(i))
-        
-        selection_result = {
-            "selection_number": i,
-            "university": university,
-            "faculty": faculty,
-            "field": field,
-            "status": "incomplete",
-            "score": None,
-            "score_d": None,
-            "message": ""
-        }
-        
-        if not (university and faculty and field):
-            selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
-            results.append(selection_result)
-            continue
-        
-        # Find program
-        program = find_program_fast(university, faculty, field)
-        
-        if program is None:
-            selection_result["status"] = "not_found"
-            selection_result["message"] = "Program not found in database"
-            results.append(selection_result)
-            continue
-        
-        # Check GPAX requirement
-        gpax_req = program.get("gpax_req")
-        user_gpax = user_data.get("gpax", 0)
-        score_p = program.get("projected_min_score_68_from_67")
-        if score_p is None:
-            score_p = program.get("คะแนนต่ำสุด_67")
-            if score_p is None:
-                score_p = program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", 0)
-        
-            
-
-        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
-            selection_result["status"] = "gpax_insufficient"
-            selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-            selection_result["gpax_required"] = float(gpax_req)
-            selection_result["gpax_current"] = float(user_gpax)
-            results.append(selection_result)
-            continue
-        
-        # Calculate score
-        score_result = calculate_program_score(user_data, program)
-        
-        if score_result["success"]:
-            selection_result["status"] = "calculated"
-            selection_result["score"] = score_result["score"]
-            selection_result["message"] = score_result["message"]
-            selection_result["score_breakdown"] = score_result["score_breakdown"]
-            selection_result["score_d"] = score_result["score"] - score_p
-        else:
-            selection_result["status"] = "error"
-            selection_result["message"] = score_result["message"]
-            if score_result["error"] == "missing_scores":
-                selection_result["missing_scores"] = score_result["missing_scores"]
-                selection_result["missing_count"] = score_result["missing_count"]
-
-        results.append(selection_result)
-    
-    # Calculate summary
-    calculated_scores = [r["score"] for r in results if r["score"] is not None]
-    
-    return {
-        "user_id": user_id,
-        "user_name": user_data.get("name"),
-        "user_gpax": user_data.get("gpax"),
-        "results": results,
-        "summary": {
-            "total_selections": len([r for r in results if r["university"]]),
-            "calculated_scores": len(calculated_scores),
-            "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
-            "highest_score": max(calculated_scores) if calculated_scores else 0,
-            "lowest_score": min(calculated_scores) if calculated_scores else 0,
-            "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
-        }
-    }
-    
 
 # ---- PYDANTIC MODELS ----
 class UniversityRequest(BaseModel):
@@ -676,7 +633,6 @@ async def calculate_scores(data: dict):
         raise HTTPException(status_code=400, detail="userId is required")
     
     try:
-        # Fix the column names in calculate_user_scores to match USER_COLUMNS
         user_data = get_user_data_fast(user_id)
         if not user_data:
             return {"error": "User not found", "user_id": user_id}
@@ -714,20 +670,22 @@ async def calculate_scores(data: dict):
                 results.append(selection_result)
                 continue
             
-            # Check GPAX requirement
-            gpax_req = program.get("gpax_req")
-            user_gpax = user_data.get("gpax", 0)
-            score_p = program.get("projected_min_score_68_from_67")
-            if score_p is None:
-                score_p = program.get("คะแนนต่ำสุด_67")
-                if score_p is None:
-                    score_p = program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", 0)
+            # Check GPAX requirement with safe conversion
+            gpax_req = safe_float_conversion(program.get("gpax_req"))
+            user_gpax = safe_float_conversion(user_data.get("gpax"))
             
-            if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+            # Get projected minimum score with safe conversion
+            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            if score_p is None:
+                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+            
+            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
                 selection_result["status"] = "gpax_insufficient"
                 selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = float(gpax_req)
-                selection_result["gpax_current"] = float(user_gpax)
+                selection_result["gpax_required"] = gpax_req
+                selection_result["gpax_current"] = user_gpax
                 results.append(selection_result)
                 continue
             
@@ -739,7 +697,7 @@ async def calculate_scores(data: dict):
                 selection_result["score"] = score_result["score"]
                 selection_result["message"] = score_result["message"]
                 selection_result["score_breakdown"] = score_result["score_breakdown"]
-                selection_result["score_d"] = score_result["score"] - score_p if score_p else None
+                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
             else:
                 selection_result["status"] = "error"
                 selection_result["message"] = score_result["message"]
@@ -917,17 +875,17 @@ async def calculate_program_score_endpoint(data: dict):
         if program is None:
             raise HTTPException(status_code=404, detail="Program not found")
         
-        # Check GPAX requirement
-        gpax_req = program.get("gpax_req")
-        user_gpax = user_data.get("gpax", 0)
+        # Check GPAX requirement with safe conversion
+        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        user_gpax = safe_float_conversion(user_data.get("gpax"))
         
-        if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
+        if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
             return {
                 "status": "gpax_insufficient",
                 "message": f"GPAX too low (need {gpax_req}, have {user_gpax})",
                 "score": None,
-                "gpax_required": float(gpax_req),
-                "gpax_current": float(user_gpax)
+                "gpax_required": gpax_req,
+                "gpax_current": user_gpax
             }
         
         # Calculate score
@@ -962,10 +920,102 @@ async def calculate_program_score_endpoint(data: dict):
 async def get_user_scores(user_id: str):
     """Get calculated scores for a user"""
     try:
-        results = calculate_user_scores(user_id)
-        if "error" in results:
-            raise HTTPException(status_code=404, detail=results["error"])
-        return results
+        # Use the same logic as calculate_scores endpoint
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        results = []
+        
+        # Check each of the 10 selections with correct column names
+        for i in range(1, 11):
+            university = user_data.get(f"selection_{i}_university")
+            faculty = user_data.get(f"selection_{i}_faculty")
+            field = user_data.get(f"selection_{i}_field")
+            
+            selection_result = {
+                "selection_number": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "incomplete",
+                "score": None,
+                "score_d": None,
+                "message": ""
+            }
+            
+            if not (university and faculty and field):
+                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
+                results.append(selection_result)
+                continue
+            
+            # Find program
+            program = find_program_fast(university, faculty, field)
+            
+            if program is None:
+                selection_result["status"] = "not_found"
+                selection_result["message"] = "Program not found in database"
+                results.append(selection_result)
+                continue
+            
+            # Check GPAX requirement with safe conversion
+            gpax_req = safe_float_conversion(program.get("gpax_req"))
+            user_gpax = safe_float_conversion(user_data.get("gpax"))
+            
+            # Get projected minimum score with safe conversion
+            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            if score_p is None:
+                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+            
+            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+                selection_result["status"] = "gpax_insufficient"
+                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
+                selection_result["gpax_required"] = gpax_req
+                selection_result["gpax_current"] = user_gpax
+                results.append(selection_result)
+                continue
+            
+            # Calculate score
+            score_result = calculate_program_score(user_data, program)
+            
+            if score_result["success"]:
+                selection_result["status"] = "calculated"
+                selection_result["score"] = score_result["score"]
+                selection_result["message"] = score_result["message"]
+                selection_result["score_breakdown"] = score_result["score_breakdown"]
+                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
+            else:
+                selection_result["status"] = "error"
+                selection_result["message"] = score_result["message"]
+                if score_result["error"] == "missing_scores":
+                    selection_result["missing_scores"] = score_result["missing_scores"]
+                    selection_result["missing_count"] = score_result["missing_count"]
+                    selection_result["total_required"] = score_result["total_required"]
+
+            results.append(selection_result)
+        
+        # Calculate summary
+        calculated_scores = [r["score"] for r in results if r["score"] is not None]
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_data.get("name"),
+            "user_gpax": user_data.get("gpax"),
+            "results": results,
+            "summary": {
+                "total_selections": len([r for r in results if r["university"]]),
+                "calculated_scores": len(calculated_scores),
+                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
+                "highest_score": max(calculated_scores) if calculated_scores else 0,
+                "lowest_score": min(calculated_scores) if calculated_scores else 0,
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
+            }
+        }
+        
+        return response_data
+        
     except HTTPException:
         raise
     except Exception as e:
