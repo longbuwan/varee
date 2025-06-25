@@ -412,9 +412,9 @@ def calculate_user_scores(user_id: str) -> Dict[str, Any]:
     
     # Check each of the 10 selections
     for i in range(1, 11):
-        university = user_data.get(f"selection_{i}_university")
-        faculty = user_data.get(f"selection_{i}_faculty")
-        field = user_data.get(f"selection_{i}_field")
+        university = user_data.get("university"+str(i))
+        faculty = user_data.get("faculty"+str(i))
+        field = user_data.get("program"+str(i))
         
         selection_result = {
             "selection_number": i,
@@ -423,6 +423,7 @@ def calculate_user_scores(user_id: str) -> Dict[str, Any]:
             "field": field,
             "status": "incomplete",
             "score": None,
+            "score_d": None,
             "message": ""
         }
         
@@ -443,7 +444,14 @@ def calculate_user_scores(user_id: str) -> Dict[str, Any]:
         # Check GPAX requirement
         gpax_req = program.get("gpax_req")
         user_gpax = user_data.get("gpax", 0)
+        score_p = program.get("projected_min_score_68_from_67")
+        if score_p is None:
+            score_p = program.get("คะแนนต่ำสุด_67")
+            if score_p is None:
+                score_p = program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", 0)
         
+            
+
         if pd.notna(gpax_req) and user_gpax and user_gpax < gpax_req:
             selection_result["status"] = "gpax_insufficient"
             selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
@@ -460,13 +468,14 @@ def calculate_user_scores(user_id: str) -> Dict[str, Any]:
             selection_result["score"] = score_result["score"]
             selection_result["message"] = score_result["message"]
             selection_result["score_breakdown"] = score_result["score_breakdown"]
+            selection_result["score_d"] = score_result["score"] - score_p
         else:
             selection_result["status"] = "error"
             selection_result["message"] = score_result["message"]
             if score_result["error"] == "missing_scores":
                 selection_result["missing_scores"] = score_result["missing_scores"]
                 selection_result["missing_count"] = score_result["missing_count"]
-        
+
         results.append(selection_result)
     
     # Calculate summary
@@ -486,6 +495,7 @@ def calculate_user_scores(user_id: str) -> Dict[str, Any]:
             "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
         }
     }
+    
 
 # ---- PYDANTIC MODELS ----
 class UniversityRequest(BaseModel):
