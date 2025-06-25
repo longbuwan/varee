@@ -23,7 +23,7 @@ class Config:
 
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
-    "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+    "userId", "name", "gpax", "tgat", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
     "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
