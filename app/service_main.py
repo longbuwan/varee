@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -133,16 +132,19 @@ def handle_text_message(event):
         # Get conversation history with token management
         messages = manage_conversation_history(user_id, user_message)
         
-        # Call OpenAI API (Fixed the API call format)
-        response = client.chat.completions.create(
-            model="gpt-4",  # Use gpt-4 or gpt-4-turbo-preview
-            messages=messages,
-            max_tokens=500,  # Limit response length
-            temperature=0.7,
-            top_p=0.9
+        # Call OpenAI API using your original format
+        # Convert messages to single input string for your API
+        conversation_context = SYSTEM_PROMPT + "\n\n"
+        for msg in messages[1:]:  # Skip system message since we add it above
+            role_thai = "ผู้ใช้" if msg["role"] == "user" else "ผู้ช่วย"
+            conversation_context += f"{role_thai}: {msg['content']}\n"
+        
+        response = client.responses.create(
+            model="gpt-4.1",
+            input=conversation_context
         )
         
-        assistant_response = response.choices[0].message.content
+        assistant_response = response.output_text
         
         # Add assistant response to history
         add_assistant_response(user_id, assistant_response)
