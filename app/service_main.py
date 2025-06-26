@@ -129,10 +129,10 @@ def handle_text_message(event):
         return
     
     try:
-        # Build conversation input using your exact original format
+        # Build conversation input with memory
         conversation_input = SYSTEM_PROMPT + "\n\n"
         
-        # Add conversation history if exists (simplified approach)
+        # Add conversation history if exists
         if user_id in user_conversations and user_conversations[user_id]:
             # Only include last 6 messages to save tokens (3 exchanges)
             recent_messages = user_conversations[user_id][-6:]
@@ -143,51 +143,77 @@ def handle_text_message(event):
         # Add current message (same format as your original)
         conversation_input += user_message
         
-        print(f"Trying original API format...")  # Debug
+        # Try different possible API formats for gpt-4.1
+        assistant_response = None
         
-        # First try: Use your exact original working code format
-        # Check what client object you actually have
-        print(f"Client type: {type(client)}")
-        print(f"Client attributes: {[attr for attr in dir(client) if not attr.startswith('_')]}")
+        # Method 1: Your original format
+        try:
+            response = client.responses.create(
+                model="gpt-4.1",
+                input=conversation_input
+            )
+            assistant_response = response.output_text
+            print("Success with responses.create method")
+        except AttributeError:
+            print("responses.create not available, trying alternatives...")
+            
+            # Method 2: Standard OpenAI with gpt-4.1
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4.1",
+                    messages=[{"role": "user", "content": conversation_input}]
+                )
+                assistant_response = response.choices[0].message.content
+                print("Success with chat.completions.create method")
+            except Exception as e:
+                print(f"chat.completions.create failed: {e}")
+                
+                # Method 3: Direct completions
+                try:
+                    response = client.completions.create(
+                        model="gpt-4.1",
+                        prompt=conversation_input,
+                        max_tokens=500
+                    )
+                    assistant_response = response.choices[0].text
+                    print("Success with completions.create method")
+                except Exception as e:
+                    print(f"completions.create failed: {e}")
+                    
+                    # Method 4: Check what methods are actually available
+                    available_methods = [method for method in dir(client) if not method.startswith('_')]
+                    print(f"Available client methods: {available_methods}")
+                    raise Exception("No working API method found for gpt-4.1")
         
-        # Try the standard OpenAI format since responses doesn't exist
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Use a model that's likely available
-            messages=[{"role": "user", "content": conversation_input}],
-            max_tokens=500
-        )
-        
-        assistant_response = response.choices[0].message.content
-        
-        # Add to conversation history
-        if user_id not in user_conversations:
-            user_conversations[user_id] = []
-        
-        user_conversations[user_id].append({"role": "user", "content": user_message})
-        user_conversations[user_id].append({"role": "assistant", "content": assistant_response})
-        
-        # Keep only last 20 messages per user
-        if len(user_conversations[user_id]) > 20:
-            user_conversations[user_id] = user_conversations[user_id][-20:]
-        
-        # Send response
-        send_message(event, assistant_response)
+        if assistant_response:
+            # Add to conversation history
+            if user_id not in user_conversations:
+                user_conversations[user_id] = []
+            
+            user_conversations[user_id].append({"role": "user", "content": user_message})
+            user_conversations[user_id].append({"role": "assistant", "content": assistant_response})
+            
+            # Keep only last 20 messages per user
+            if len(user_conversations[user_id]) > 20:
+                user_conversations[user_id] = user_conversations[user_id][-20:]
+            
+            # Send response
+            send_message(event, assistant_response)
         
     except Exception as e:
-        print(f"Detailed Error: {type(e).__name__}: {str(e)}")
-        print(f"Available client methods: {[method for method in dir(client) if 'create' in method.lower()]}")
+        print(f"All API methods failed. Error: {type(e).__name__}: {str(e)}")
+        print("Please check your OpenAI client setup or provide the correct API format")
         
-        # Fallback: Use your original working code without memory
+        # Fallback: Use original code without memory as last resort
         try:
-            print("Trying fallback without conversation memory...")
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": SYSTEM_PROMPT + "\n\n" + user_message}]
+            print("Using original fallback without conversation memory...")
+            # Try to replicate your exact original working code
+            response = client.responses.create(
+                model="gpt-4.1",
+                input=SYSTEM_PROMPT + "\n\n" + user_message
             )
-            assistant_response = response.choices[0].message.content
-            send_message(event, assistant_response)
-        except Exception as e2:
-            print(f"Fallback also failed: {e2}")
+            send_message(event, response.output_text)
+        except:
             error_message = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
             send_message(event, error_message)
 
