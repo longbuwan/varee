@@ -23,8 +23,8 @@ class Config:
 
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
-    "userId", "name", "gpax", "tgat", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
+   "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
@@ -43,12 +43,12 @@ USER_COLUMNS = [
 ]
 
 NUMERIC_COLUMNS = {
-    "gpax", "tgat", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+  "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
+   "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28"
+    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
 }
 
 # Updated score columns based on the CSV structure
