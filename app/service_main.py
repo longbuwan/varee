@@ -59,5 +59,5 @@ def echo(event):
         event.reply_token, TextSendMessage(text=event.message.text)
     )
 def send_message(event, message):
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message)) can you make this chat bot keep the old messages data of each user and set a better prompt for it in thai also optimise the token usage so i dont waste too much token
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=message))# can you make this chat bot keep the old messages data of each user and set a better prompt for it in thai also optimise the token usage so i dont waste too much token
 
