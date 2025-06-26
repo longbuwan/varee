@@ -10,7 +10,11 @@ import asyncio
 from datetime import datetime, timedelta
 import threading
 from functools import lru_cache
+import logging
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 router = APIRouter()
@@ -23,12 +27,14 @@ class Config:
 
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
-    "userId", "name", "gpax", "tgat", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "userId", "name", "gpax", "tgat", "tgat1", "tgat2", "tgat3", 
+    "tpat1", "tpat11", "tpat12", "tpat13",
+    "tpat2", "tpat21", "tpat22", "tpat23", 
+    "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
+    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", 
+    "gpa21", "gpa22", "gpa23", "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
     # Selection columns for 10 universities
     "selection_1_university", "selection_1_faculty", "selection_1_field",
     "selection_2_university", "selection_2_faculty", "selection_2_field",
@@ -42,14 +48,17 @@ USER_COLUMNS = [
     "selection_10_university", "selection_10_faculty", "selection_10_field"
 ]
 
-NUMERIC_COLUMNS = {
-    "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+# Numeric columns (all score-related fields)
+NUMERIC_COLUMNS = [
+    "gpax", "tgat", "tgat1", "tgat2", "tgat3", 
+    "tpat1", "tpat11", "tpat12", "tpat13",
+    "tpat2", "tpat21", "tpat22", "tpat23", 
+    "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
-    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28"
-}
+    "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", 
+    "gpa21", "gpa22", "gpa23", "gpa24", "gpa25", "gpa26", "gpa27", "gpa28"
+]
 
 # Updated score columns based on the CSV structure
 SCORE_COLUMNS = [
@@ -68,6 +77,72 @@ UNIVERSITY_NUMERIC_COLUMNS = [
     "gpax_req", "projected_min_score_68_from_67", "คะแนนต่ำสุด_67", 
     "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", "cal_score_sum"
 ] + SCORE_COLUMNS
+
+# ---- PYDANTIC MODELS ----
+class ScoreSubmission(BaseModel):
+    userId: Optional[str] = None
+    name: Optional[str] = None
+    gpax: Optional[float] = None
+    tgat: Optional[float] = None
+    tgat1: Optional[float] = None
+    tgat2: Optional[float] = None
+    tgat3: Optional[float] = None
+    tpat1: Optional[float] = None
+    tpat11: Optional[float] = None
+    tpat12: Optional[float] = None
+    tpat13: Optional[float] = None
+    tpat2: Optional[float] = None
+    tpat21: Optional[float] = None
+    tpat22: Optional[float] = None
+    tpat23: Optional[float] = None
+    tpat3: Optional[float] = None
+    tpat4: Optional[float] = None
+    tpat5: Optional[float] = None
+    a_lv_61: Optional[float] = None
+    a_lv_62: Optional[float] = None
+    a_lv_63: Optional[float] = None
+    a_lv_64: Optional[float] = None
+    a_lv_65: Optional[float] = None
+    a_lv_66: Optional[float] = None
+    a_lv_70: Optional[float] = None
+    a_lv_81: Optional[float] = None
+    a_lv_82: Optional[float] = None
+    a_lv_83: Optional[float] = None
+    a_lv_84: Optional[float] = None
+    a_lv_85: Optional[float] = None
+    a_lv_86: Optional[float] = None
+    a_lv_87: Optional[float] = None
+    a_lv_88: Optional[float] = None
+    a_lv_89: Optional[float] = None
+    gpa21: Optional[float] = None
+    gpa22: Optional[float] = None
+    gpa23: Optional[float] = None
+    gpa24: Optional[float] = None
+    gpa25: Optional[float] = None
+    gpa26: Optional[float] = None
+    gpa27: Optional[float] = None
+    gpa28: Optional[float] = None
+
+    class Config:
+        extra = "forbid"  # Prevent extra fields
+
+class UniversityRequest(BaseModel):
+    name: str
+    userId: Optional[str] = None
+
+class FacultyRequest(BaseModel):
+    name: str
+    faculty: str
+
+class UniversitySelection(BaseModel):
+    university: str
+    faculty: str
+    field: str
+
+class MultipleSelectionsSubmission(BaseModel):
+    userId: str
+    name: str
+    selections: List[UniversitySelection]
 
 # ---- HELPER FUNCTIONS ----
 def safe_float_conversion(value, default=None):
@@ -154,10 +229,53 @@ def setup_google_sheets():
         
         return worksheet, datasheet
     except Exception as e:
-        print(f"Error setting up Google Sheets: {e}")
+        logger.error(f"Error setting up Google Sheets: {e}")
         raise
 
-worksheet, datasheet = setup_google_sheets()
+# Initialize sheets (with proper error handling)
+try:
+    worksheet, datasheet = setup_google_sheets()
+    logger.info("Google Sheets initialized successfully")
+except Exception as e:
+    logger.warning(f"Could not initialize Google Sheets: {e}")
+    worksheet, datasheet = None, None
+
+# ---- DATA VALIDATION FUNCTIONS ----
+def validate_score_submission(data: ScoreSubmission) -> Dict[str, Any]:
+    """Validate score submission data"""
+    errors = []
+    warnings = []
+    
+    # Check required fields
+    if not data.userId:
+        errors.append("userId is required")
+    if not data.name:
+        errors.append("name is required")
+    
+    # Validate score ranges
+    score_validations = [
+        ("gpax", data.gpax, 0, 100, "GPAX should be between 0-100"),
+        ("tgat1", data.tgat1, 0, 100, "TGAT1 should be between 0-100"),
+        ("tgat2", data.tgat2, 0, 100, "TGAT2 should be between 0-100"),
+        ("tgat3", data.tgat3, 0, 100, "TGAT3 should be between 0-100"),
+    ]
+    
+    for field_name, value, min_val, max_val, message in score_validations:
+        if value is not None and (value < min_val or value > max_val):
+            errors.append(f"{message}, got {value}")
+    
+    # Check for missing critical scores
+    critical_fields = ["gpax", "tgat1", "tgat2", "tgat3"]
+    missing_critical = [field for field in critical_fields if getattr(data, field) is None]
+    if missing_critical:
+        warnings.append(f"Missing critical scores: {', '.join(missing_critical)}")
+    
+    return {
+        "is_valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "has_warnings": len(warnings) > 0
+    }
 
 # ---- SCORE CALCULATION FUNCTIONS ----
 def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[str, Any]:
@@ -319,6 +437,7 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
         }
         
     except Exception as e:
+        logger.error(f"Error calculating score: {e}")
         return {
             "success": False,
             "error": "calculation_error",
@@ -333,8 +452,11 @@ def load_and_cache_data():
         if data_cache.is_cache_valid():
             return
         
+        if worksheet is None or datasheet is None:
+            raise Exception("Google Sheets not properly initialized")
+        
         try:
-            print("Loading data from Google Sheets...")
+            logger.info("Loading data from Google Sheets...")
             
             # Load user data
             worksheet_values = worksheet.get_all_values()
@@ -362,6 +484,8 @@ def load_and_cache_data():
                 for _, row in user_df.iterrows():
                     if row['userId']:
                         data_cache.user_data_dict[row['userId']] = row.to_dict()
+                
+                logger.info(f"Loaded {len(user_df)} user records")
             
             # Load university data
             university_records = datasheet.get_all_records()
@@ -374,6 +498,8 @@ def load_and_cache_data():
                         data_cache.university_data_df[col] = pd.to_numeric(
                             data_cache.university_data_df[col], errors='coerce'
                         )
+                
+                logger.info(f"Loaded {len(data_cache.university_data_df)} university programs")
             
             # Pre-compute mappings
             if not data_cache.university_data_df.empty:
@@ -406,10 +532,10 @@ def load_and_cache_data():
                     data_cache.faculty_fields[key] = fields
             
             data_cache.last_update = datetime.now()
-            print("Data loaded successfully")
+            logger.info("Data loaded and cached successfully")
             
         except Exception as e:
-            print(f"Error loading data: {e}")
+            logger.error(f"Error loading data: {e}")
             raise
 
 # ---- HELPER FUNCTIONS ----
@@ -455,155 +581,187 @@ def find_program_fast(university: str, faculty: str, field: str) -> Optional[pd.
     
     return matched_programs.iloc[0]
 
-# ---- PYDANTIC MODELS ----
-class UniversityRequest(BaseModel):
-    name: str
-    userId: Optional[str] = None
-
-class FacultyRequest(BaseModel):
-    name: str
-    faculty: str
-
-class ScoreSubmission(BaseModel):
-    userId: Optional[str]
-    name: Optional[str]
-    gpax: Optional[float] = None
-    tgat1: Optional[float] = None
-    tgat2: Optional[float] = None
-    tgat3: Optional[float] = None
-    tpat11: Optional[float] = None
-    tpat12: Optional[float] = None
-    tpat13: Optional[float] = None
-    tpat21: Optional[float] = None
-    tpat22: Optional[float] = None
-    tpat23: Optional[float] = None
-    tpat3: Optional[float] = None
-    tpat4: Optional[float] = None
-    tpat5: Optional[float] = None
-    a_lv_61: Optional[float] = None
-    a_lv_62: Optional[float] = None
-    a_lv_63: Optional[float] = None
-    a_lv_64: Optional[float] = None
-    a_lv_65: Optional[float] = None
-    a_lv_66: Optional[float] = None
-    a_lv_70: Optional[float] = None
-    a_lv_81: Optional[float] = None
-    a_lv_82: Optional[float] = None
-    a_lv_83: Optional[float] = None
-    a_lv_84: Optional[float] = None
-    a_lv_85: Optional[float] = None
-    a_lv_86: Optional[float] = None
-    a_lv_87: Optional[float] = None
-    a_lv_88: Optional[float] = None
-    a_lv_89: Optional[float] = None
-    gpa21: Optional[float] = None
-    gpa22: Optional[float] = None
-    gpa23: Optional[float] = None
-    gpa24: Optional[float] = None
-    gpa25: Optional[float] = None
-    gpa26: Optional[float] = None
-    gpa27: Optional[float] = None
-    gpa28: Optional[float] = None
-
-class UniversitySelection(BaseModel):
-    university: str
-    faculty: str
-    field: str
-
-class MultipleSelectionsSubmission(BaseModel):
-    userId: str
-    name: str
-    selections: List[UniversitySelection]
-
 # ---- DATA SAVING FUNCTIONS ----
-def upsert_user_data_optimized(worksheet, data):
-    """Optimized user data upsert with minimal sheet operations"""
-    # Get current user data from cache first
-    user_data = get_user_data_fast(data.userId)
-    
-    # Prepare new row data
-    new_row = [""] * len(USER_COLUMNS)
-    
-    # Set provided data
-    for i, col in enumerate(USER_COLUMNS):
-        if col.startswith("selection_"):
-            # Keep existing selection data
-            if user_data and col in user_data:
-                new_row[i] = str(user_data[col]) if user_data[col] is not None else ""
-        else:
-            val = getattr(data, col, None)
-            new_row[i] = str(val) if val is not None else ""
-    
-    # Single sheet operation
-    if user_data:
-        # Update existing row - find row number
-        all_values = worksheet.get_all_values()
-        row_index = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == data.userId:
-                row_index = i + 1
-                break
+def upsert_user_data_optimized(worksheet, data: ScoreSubmission):
+    """Improved user data upsert with better duplicate prevention and logging"""
+    try:
+        logger.info(f"Upserting data for user {data.userId}")
         
-        if row_index:
+        # First, get all current data to find existing row
+        all_values = worksheet.get_all_values()
+        
+        # Find existing row by userId (case-insensitive and strip whitespace)
+        existing_row_index = None
+        target_user_id = str(data.userId).strip().lower()
+        
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0:
+                current_user_id = str(row[0]).strip().lower()
+                if current_user_id == target_user_id:
+                    existing_row_index = i + 1  # Google Sheets is 1-indexed
+                    break
+        
+        # Get current user data from cache
+        user_data = get_user_data_fast(data.userId)
+        
+        # Prepare new row data
+        new_row = [""] * len(USER_COLUMNS)
+        
+        # Set provided data
+        for i, col in enumerate(USER_COLUMNS):
+            if col.startswith("selection_"):
+                # Keep existing selection data if not being updated
+                if user_data and col in user_data and user_data[col] is not None:
+                    new_row[i] = str(user_data[col])
+            else:
+                val = getattr(data, col, None)
+                if val is not None:
+                    new_row[i] = str(val)
+                elif user_data and col in user_data and user_data[col] is not None:
+                    # Keep existing data for fields not being updated
+                    new_row[i] = str(user_data[col])
+        
+        # Log the data being saved
+        non_empty_data = {col: new_row[i] for i, col in enumerate(USER_COLUMNS) if new_row[i] and new_row[i] != ""}
+        logger.info(f"Saving data for user {data.userId}: {len(non_empty_data)} fields")
+        
+        # Single sheet operation
+        if existing_row_index:
+            # Update existing row
             end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
             worksheet.update(cell_range, [new_row])
-    else:
-        # Add new row
-        worksheet.append_row(new_row)
-    
-    # Invalidate cache to force refresh
-    data_cache.invalidate_cache()
+            logger.info(f"Updated existing row {existing_row_index} for user {data.userId}")
+        else:
+            # Add new row
+            worksheet.append_row(new_row)
+            logger.info(f"Added new row for user {data.userId}")
+        
+        # Invalidate cache to force refresh
+        data_cache.invalidate_cache()
+        
+    except Exception as e:
+        logger.error(f"Error in upsert_user_data_optimized: {e}")
+        raise
 
 def save_multiple_selections(worksheet, user_id: str, name: str, selections: List[Dict]):
-    """Save multiple university selections"""
-    # Get existing user data
-    user_data = get_user_data_fast(user_id)
-    
-    # Prepare new row data
-    new_row = [""] * len(USER_COLUMNS)
-    
-    # Set basic user info
-    new_row[0] = user_id
-    new_row[1] = name
-    
-    # Copy existing score data if available
-    if user_data:
-        for i, col in enumerate(USER_COLUMNS[2:], 2):
-            if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
-                new_row[i] = str(user_data[col])
-
-    # Add selections (find the index where selections start)
-    selection_start_idx = USER_COLUMNS.index("selection_1_university")
-    
-    for idx, selection in enumerate(selections):
-        if idx < 10:  # Max 10 selections
-            base_idx = selection_start_idx + (idx * 3)
-            new_row[base_idx] = selection.get("university", "")
-            new_row[base_idx + 1] = selection.get("faculty", "")
-            new_row[base_idx + 2] = selection.get("field", "")
-
-    # Single sheet operation
-    if user_data:
-        # Update existing row
-        all_values = worksheet.get_all_values()
-        row_index = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == user_id:
-                row_index = i + 1
-                break
+    """Improved multiple selections save with better duplicate handling"""
+    try:
+        logger.info(f"Saving {len(selections)} selections for user {user_id}")
         
-        if row_index:
-            end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
-            worksheet.update(cell_range, [new_row])
-    else:
-        worksheet.append_row(new_row)
+        # Get all current data to find existing row
+        all_values = worksheet.get_all_values()
+        
+        # Find existing row by userId
+        existing_row_index = None
+        target_user_id = str(user_id).strip().lower()
+        
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0:
+                current_user_id = str(row[0]).strip().lower()
+                if current_user_id == target_user_id:
+                    existing_row_index = i + 1
+                    break
+        
+        # Get existing user data
+        user_data = get_user_data_fast(user_id)
+        
+        # Prepare new row data
+        new_row = [""] * len(USER_COLUMNS)
+        
+        # Set basic user info
+        new_row[0] = user_id
+        new_row[1] = name
+        
+        # Copy existing score data if available
+        if user_data:
+            for i, col in enumerate(USER_COLUMNS[2:], 2):
+                if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
+                    new_row[i] = str(user_data[col])
 
-    # Invalidate cache
-    data_cache.invalidate_cache()
+        # Clear all existing selections first
+        selection_start_idx = USER_COLUMNS.index("selection_1_university")
+        for i in range(selection_start_idx, len(USER_COLUMNS)):
+            new_row[i] = ""
+
+        # Add new selections
+        for idx, selection in enumerate(selections):
+            if idx < 10:  # Max 10 selections
+                base_idx = selection_start_idx + (idx * 3)
+                if base_idx + 2 < len(new_row):
+                    new_row[base_idx] = selection.get("university", "")
+                    new_row[base_idx + 1] = selection.get("faculty", "")
+                    new_row[base_idx + 2] = selection.get("field", "")
+
+        # Single sheet operation
+        if existing_row_index:
+            # Update existing row
+            end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
+            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
+            worksheet.update(cell_range, [new_row])
+            logger.info(f"Updated selections for existing user {user_id} at row {existing_row_index}")
+        else:
+            # Add new row
+            worksheet.append_row(new_row)
+            logger.info(f"Added new user {user_id} with selections")
+
+        # Invalidate cache
+        data_cache.invalidate_cache()
+        
+    except Exception as e:
+        logger.error(f"Error in save_multiple_selections: {e}")
+        raise
 
 # ---- API ENDPOINTS ----
+@router.post("/api/save-score")
+async def save_score(data: ScoreSubmission):
+    """Save user score data with enhanced validation and logging"""
+    try:
+        # Validate the submission
+        validation = validate_score_submission(data)
+        
+        if not validation["is_valid"]:
+            logger.warning(f"Invalid score submission for user {data.userId}: {validation['errors']}")
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "message": "Invalid data submission",
+                    "errors": validation["errors"],
+                    "warnings": validation.get("warnings", [])
+                }
+            )
+        
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
+        
+        # Log warnings if any
+        if validation["has_warnings"]:
+            logger.warning(f"Warnings for user {data.userId}: {validation['warnings']}")
+        
+        # Save the data
+        upsert_user_data_optimized(worksheet, data)
+        
+        # Count non-null fields for response
+        data_dict = data.dict()
+        non_null_fields = sum(1 for v in data_dict.values() if v is not None)
+        
+        logger.info(f"Successfully saved {non_null_fields} fields for user {data.userId}")
+        
+        response_data = {
+            "message": "Data saved to Google Sheets successfully",
+            "user_id": data.userId,
+            "fields_saved": non_null_fields,
+            "warnings": validation.get("warnings", [])
+        }
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving data for user {data.userId}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save data: {str(e)}")
+
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
     """Get faculties for a university"""
@@ -611,7 +769,7 @@ async def find_faculty(data: UniversityRequest):
         faculties = get_cached_faculties(data.name)
         return {"faculties": faculties}
     except Exception as e:
-        print(f"Error finding faculties: {e}")
+        logger.error(f"Error finding faculties: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find faculties: {str(e)}")
 
 @router.post("/api/find_field")
@@ -621,121 +779,43 @@ async def find_field(data: FacultyRequest):
         fields = get_cached_fields(data.name, data.faculty)
         return {"faculties": fields}  # Keep original response format for compatibility
     except Exception as e:
-        print(f"Error finding fields: {e}")
+        logger.error(f"Error finding fields: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find fields: {str(e)}")
 
-
-@router.post("/api/calculate_scores")
-async def calculate_scores(data: dict):
-    """Calculate scores for all user selections"""
-    user_id = data.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=400, detail="userId is required")
-    
+@router.post("/api/submit_multiple_selections")
+async def submit_multiple_selections(data: MultipleSelectionsSubmission):
+    """Save multiple university selections"""
     try:
-        user_data = get_user_data_fast(user_id)
-        if not user_data:
-            return {"error": "User not found", "user_id": user_id}
+        if not data.userId:
+            raise HTTPException(status_code=400, detail="userId is required")
         
-        results = []
+        if not data.name:
+            raise HTTPException(status_code=400, detail="name is required")
         
-        # Check each of the 10 selections with correct column names
-        for i in range(1, 11):
-            university = user_data.get(f"selection_{i}_university")
-            faculty = user_data.get(f"selection_{i}_faculty")
-            field = user_data.get(f"selection_{i}_field")
-            
-            selection_result = {
-                "selection_number": i,
-                "university": university,
-                "faculty": faculty,
-                "field": field,
-                "status": "incomplete",
-                "score": None,
-                "score_d": None,
-                "message": ""
-            }
-            
-            if not (university and faculty and field):
-                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
-                results.append(selection_result)
-                continue
-            
-            # Find program
-            program = find_program_fast(university, faculty, field)
-            
-            if program is None:
-                selection_result["status"] = "not_found"
-                selection_result["message"] = "Program not found in database"
-                results.append(selection_result)
-                continue
-            
-            # Check GPAX requirement with safe conversion
-            gpax_req = safe_float_conversion(program.get("gpax_req"))
-            user_gpax = safe_float_conversion(user_data.get("gpax"))
-            
-            # Get projected minimum score with safe conversion
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
-            if score_p is None:
-                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
-                if score_p is None:
-                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
-            
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
-                selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
-                results.append(selection_result)
-                continue
-            
-            # Calculate score
-            score_result = calculate_program_score(user_data, program)
-            
-            if score_result["success"]:
-                selection_result["status"] = "calculated"
-                selection_result["score"] = score_result["score"]
-                selection_result["message"] = score_result["message"]
-                selection_result["score_breakdown"] = score_result["score_breakdown"]
-                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
-            else:
-                selection_result["status"] = "error"
-                selection_result["message"] = score_result["message"]
-                if score_result["error"] == "missing_scores":
-                    selection_result["missing_scores"] = score_result["missing_scores"]
-                    selection_result["missing_count"] = score_result["missing_count"]
-                    selection_result["total_required"] = score_result["total_required"]
+        if not data.selections:
+            raise HTTPException(status_code=400, detail="selections are required")
+        
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
+        
+        # Convert selections to dict format
+        selections_dict = []
+        for selection in data.selections:
+            selections_dict.append({
+                "university": selection.university,
+                "faculty": selection.faculty,
+                "field": selection.field
+            })
+        
+        save_multiple_selections(worksheet, data.userId, data.name, selections_dict)
+        
+        return {"message": f"Successfully saved {len(data.selections)} university selections"}
 
-            results.append(selection_result)
-        
-        # Calculate summary
-        calculated_scores = [r["score"] for r in results if r["score"] is not None]
-        
-        response_data = {
-            "user_id": user_id,
-            "user_name": user_data.get("name"),
-            "user_gpax": user_data.get("gpax"),
-            "results": results,
-            "summary": {
-                "total_selections": len([r for r in results if r["university"]]),
-                "calculated_scores": len(calculated_scores),
-                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
-                "highest_score": max(calculated_scores) if calculated_scores else 0,
-                "lowest_score": min(calculated_scores) if calculated_scores else 0,
-                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
-            }
-        }
-        
-        if "error" in response_data:
-            raise HTTPException(status_code=404, detail=response_data["error"])
-        
-        return response_data
-        
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error calculating scores: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
+        logger.error(f"Error saving multiple selections: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save selections: {str(e)}")
 
 @router.get("/api/user_data/{user_id}")
 async def get_user_data(user_id: str):
@@ -749,8 +829,47 @@ async def get_user_data(user_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error getting user data: {e}")
+        logger.error(f"Error getting user data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get user data: {str(e)}")
+
+@router.get("/api/health")
+async def health_check():
+    """Health check endpoint with detailed status"""
+    try:
+        load_and_cache_data()
+        
+        user_count = len(data_cache.user_data_dict) if data_cache.user_data_dict else 0
+        university_count = len(data_cache.university_data_df) if data_cache.university_data_df is not None else 0
+        
+        return {
+            "status": "healthy",
+            "cache_valid": data_cache.is_cache_valid(),
+            "last_update": data_cache.last_update.isoformat() if data_cache.last_update else None,
+            "user_data_loaded": data_cache.user_data_df is not None,
+            "university_data_loaded": data_cache.university_data_df is not None,
+            "google_sheets_initialized": worksheet is not None and datasheet is not None,
+            "user_count": user_count,
+            "university_program_count": university_count,
+            "cached_faculties": len(data_cache.university_faculties),
+            "cached_fields": len(data_cache.faculty_fields)
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+@router.post("/api/refresh_cache")
+async def refresh_cache():
+    """Manually refresh the data cache"""
+    try:
+        data_cache.invalidate_cache()
+        load_and_cache_data()
+        return {"message": "Cache refreshed successfully"}
+    except Exception as e:
+        logger.error(f"Error refreshing cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh cache: {str(e)}")
 
 @router.get("/api/debug/user/{user_id}")
 async def debug_user_data(user_id: str):
@@ -803,235 +922,8 @@ async def debug_user_data(user_id: str):
             }
         }
     except Exception as e:
+        logger.error(f"Debug endpoint error: {e}")
         return {"error": str(e), "user_id": user_id}
-
-@router.post("/api/save-score")
-async def save_score(data: ScoreSubmission):
-    """Save user score data"""
-    try:
-        if not data.userId:
-            raise HTTPException(status_code=400, detail="userId is required")
-        
-        upsert_user_data_optimized(worksheet, data)
-        return {"message": "Data saved to Google Sheets successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error saving data: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save data: {str(e)}")
-
-@router.post("/api/submit_multiple_selections")
-async def submit_multiple_selections(data: MultipleSelectionsSubmission):
-    """Save multiple university selections"""
-    try:
-        if not data.userId:
-            raise HTTPException(status_code=400, detail="userId is required")
-        
-        if not data.name:
-            raise HTTPException(status_code=400, detail="name is required")
-        
-        if not data.selections:
-            raise HTTPException(status_code=400, detail="selections are required")
-        
-        # Convert selections to dict format
-        selections_dict = []
-        for selection in data.selections:
-            selections_dict.append({
-                "university": selection.university,
-                "faculty": selection.faculty,
-                "field": selection.field
-            })
-        
-        save_multiple_selections(worksheet, data.userId, data.name, selections_dict)
-        
-        return {"message": f"Successfully saved {len(data.selections)} university selections"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error saving multiple selections: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save selections: {str(e)}")
-
-@router.post("/api/calculate_program_score")
-async def calculate_program_score_endpoint(data: dict):
-    """Calculate score for a specific program"""
-    user_id = data.get("userId")
-    university = data.get("university")
-    faculty = data.get("faculty")
-    field = data.get("field")
-    
-    if not all([user_id, university, faculty, field]):
-        raise HTTPException(
-            status_code=400, 
-            detail="userId, university, faculty, and field are required"
-        )
-    
-    try:
-        user_data = get_user_data_fast(user_id)
-        if not user_data:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        program = find_program_fast(university, faculty, field)
-        if program is None:
-            raise HTTPException(status_code=404, detail="Program not found")
-        
-        # Check GPAX requirement with safe conversion
-        gpax_req = safe_float_conversion(program.get("gpax_req"))
-        user_gpax = safe_float_conversion(user_data.get("gpax"))
-        
-        if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
-            return {
-                "status": "gpax_insufficient",
-                "message": f"GPAX too low (need {gpax_req}, have {user_gpax})",
-                "score": None,
-                "gpax_required": gpax_req,
-                "gpax_current": user_gpax
-            }
-        
-        # Calculate score
-        score_result = calculate_program_score(user_data, program)
-        
-        if score_result["success"]:
-            return {
-                "status": "success",
-                "score": score_result["score"],
-                "program_info": score_result["program_info"],
-                "score_breakdown": score_result["score_breakdown"],
-                "university": university,
-                "faculty": faculty,
-                "field": field,
-                "message": score_result["message"]
-            }
-        else:
-            return {
-                "status": "error",
-                "score": None,
-                "message": score_result["message"],
-                "missing_scores": score_result.get("missing_scores", [])
-            }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error calculating program score: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to calculate score: {str(e)}")
-
-@router.get("/api/user_scores/{user_id}")
-async def get_user_scores(user_id: str):
-    """Get calculated scores for a user"""
-    try:
-        # Use the same logic as calculate_scores endpoint
-        user_data = get_user_data_fast(user_id)
-        if not user_data:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        results = []
-        
-        # Check each of the 10 selections with correct column names
-        for i in range(1, 11):
-            university = user_data.get(f"selection_{i}_university")
-            faculty = user_data.get(f"selection_{i}_faculty")
-            field = user_data.get(f"selection_{i}_field")
-            
-            selection_result = {
-                "selection_number": i,
-                "university": university,
-                "faculty": faculty,
-                "field": field,
-                "status": "incomplete",
-                "score": None,
-                "score_d": None,
-                "message": ""
-            }
-            
-            if not (university and faculty and field):
-                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
-                results.append(selection_result)
-                continue
-            
-            # Find program
-            program = find_program_fast(university, faculty, field)
-            
-            if program is None:
-                selection_result["status"] = "not_found"
-                selection_result["message"] = "Program not found in database"
-                results.append(selection_result)
-                continue
-            
-            # Check GPAX requirement with safe conversion
-            gpax_req = safe_float_conversion(program.get("gpax_req"))
-            user_gpax = safe_float_conversion(user_data.get("gpax"))
-            
-            # Get projected minimum score with safe conversion
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
-            if score_p is None:
-                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
-                if score_p is None:
-                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
-            
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
-                selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
-                results.append(selection_result)
-                continue
-            
-            # Calculate score
-            score_result = calculate_program_score(user_data, program)
-            
-            if score_result["success"]:
-                selection_result["status"] = "calculated"
-                selection_result["score"] = score_result["score"]
-                selection_result["message"] = score_result["message"]
-                selection_result["score_breakdown"] = score_result["score_breakdown"]
-                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
-            else:
-                selection_result["status"] = "error"
-                selection_result["message"] = score_result["message"]
-                if score_result["error"] == "missing_scores":
-                    selection_result["missing_scores"] = score_result["missing_scores"]
-                    selection_result["missing_count"] = score_result["missing_count"]
-                    selection_result["total_required"] = score_result["total_required"]
-
-            results.append(selection_result)
-        
-        # Calculate summary
-        calculated_scores = [r["score"] for r in results if r["score"] is not None]
-        
-        response_data = {
-            "user_id": user_id,
-            "user_name": user_data.get("name"),
-            "user_gpax": user_data.get("gpax"),
-            "results": results,
-            "summary": {
-                "total_selections": len([r for r in results if r["university"]]),
-                "calculated_scores": len(calculated_scores),
-                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
-                "highest_score": max(calculated_scores) if calculated_scores else 0,
-                "lowest_score": min(calculated_scores) if calculated_scores else 0,
-                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
-            }
-        }
-        
-        return response_data
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error getting user scores: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get scores: {str(e)}")
-
-@router.post("/api/refresh_cache")
-async def refresh_cache():
-    """Manually refresh the data cache"""
-    try:
-        data_cache.invalidate_cache()
-        load_and_cache_data()
-        return {"message": "Cache refreshed successfully"}
-    except Exception as e:
-        print(f"Error refreshing cache: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to refresh cache: {str(e)}")
 
 # Include router
 app.include_router(router)
