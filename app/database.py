@@ -24,7 +24,7 @@ class Config:
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
     "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
-   "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
@@ -42,14 +42,15 @@ USER_COLUMNS = [
     "selection_10_university", "selection_10_faculty", "selection_10_field"
 ]
 
-NUMERIC_COLUMNS = {
-  "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
-   "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+# Fixed: Changed from set to list
+NUMERIC_COLUMNS = [
+    "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
+    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
     "gpa24", "gpa26", "gpa27", "gpa28",
-}
+]
 
 # Updated score columns based on the CSV structure
 SCORE_COLUMNS = [
@@ -157,7 +158,12 @@ def setup_google_sheets():
         print(f"Error setting up Google Sheets: {e}")
         raise
 
-worksheet, datasheet = setup_google_sheets()
+# Initialize sheets (with proper error handling)
+try:
+    worksheet, datasheet = setup_google_sheets()
+except Exception as e:
+    print(f"Warning: Could not initialize Google Sheets: {e}")
+    worksheet, datasheet = None, None
 
 # ---- SCORE CALCULATION FUNCTIONS ----
 def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[str, Any]:
@@ -332,6 +338,9 @@ def load_and_cache_data():
     with data_cache._lock:
         if data_cache.is_cache_valid():
             return
+        
+        if worksheet is None or datasheet is None:
+            raise Exception("Google Sheets not properly initialized")
         
         try:
             print("Loading data from Google Sheets...")
@@ -517,6 +526,7 @@ class MultipleSelectionsSubmission(BaseModel):
     userId: str
     name: str
     selections: List[UniversitySelection]
+
 def validate_csv_structure():
     """Validate that the CSV structure matches USER_COLUMNS"""
     try:
@@ -558,9 +568,10 @@ def validate_csv_structure():
         
     except Exception as e:
         return {"valid": False, "error": f"Validation error: {str(e)}"}
+
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
-   """Improved user data upsert with better duplicate prevention"""
+    """Improved user data upsert with better duplicate prevention"""
     try:
         # First, get all current data to find existing row
         all_values = worksheet.get_all_values()
@@ -614,8 +625,9 @@ def upsert_user_data_optimized(worksheet, data):
     except Exception as e:
         print(f"Error in upsert_user_data_optimized: {e}")
         raise
+
 def save_multiple_selections(worksheet, user_id: str, name: str, selections: List[Dict]):
-     """Improved multiple selections save with better duplicate handling"""
+    """Improved multiple selections save with better duplicate handling"""
     try:
         # Get all current data to find existing row
         all_values = worksheet.get_all_values()
@@ -677,8 +689,9 @@ def save_multiple_selections(worksheet, user_id: str, name: str, selections: Lis
         data_cache.invalidate_cache()
         
     except Exception as e:
-        print(f"Error in save_multiple_selections_improved: {e}")
+        print(f"Error in save_multiple_selections: {e}")
         raise
+
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
     """Get faculties for a university"""
@@ -698,7 +711,6 @@ async def find_field(data: FacultyRequest):
     except Exception as e:
         print(f"Error finding fields: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find fields: {str(e)}")
-
 
 @router.post("/api/calculate_scores")
 async def calculate_scores(data: dict):
@@ -887,6 +899,9 @@ async def save_score(data: ScoreSubmission):
         if not data.userId:
             raise HTTPException(status_code=400, detail="userId is required")
         
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
+        
         upsert_user_data_optimized(worksheet, data)
         return {"message": "Data saved to Google Sheets successfully"}
     except HTTPException:
@@ -907,6 +922,9 @@ async def submit_multiple_selections(data: MultipleSelectionsSubmission):
         
         if not data.selections:
             raise HTTPException(status_code=400, detail="selections are required")
+        
+        if worksheet is None:
+            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
         
         # Convert selections to dict format
         selections_dict = []
@@ -1107,6 +1125,25 @@ async def refresh_cache():
     except Exception as e:
         print(f"Error refreshing cache: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to refresh cache: {str(e)}")
+
+@router.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        load_and_cache_data()
+        return {
+            "status": "healthy",
+            "cache_valid": data_cache.is_cache_valid(),
+            "last_update": data_cache.last_update.isoformat() if data_cache.last_update else None,
+            "user_data_loaded": data_cache.user_data_df is not None,
+            "university_data_loaded": data_cache.university_data_df is not None,
+            "google_sheets_initialized": worksheet is not None and datasheet is not None
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
 # Include router
 app.include_router(router)
