@@ -517,7 +517,47 @@ class MultipleSelectionsSubmission(BaseModel):
     userId: str
     name: str
     selections: List[UniversitySelection]
-
+def validate_csv_structure():
+    """Validate that the CSV structure matches USER_COLUMNS"""
+    try:
+        load_and_cache_data()
+        
+        if data_cache.user_data_df is None:
+            return {"valid": False, "error": "No data loaded"}
+        
+        csv_columns = list(data_cache.user_data_df.columns)
+        expected_columns = USER_COLUMNS
+        
+        if len(csv_columns) != len(expected_columns):
+            return {
+                "valid": False,
+                "error": "Column count mismatch",
+                "csv_count": len(csv_columns),
+                "expected_count": len(expected_columns),
+                "csv_columns": csv_columns,
+                "expected_columns": expected_columns
+            }
+        
+        mismatched_columns = []
+        for i, (csv_col, expected_col) in enumerate(zip(csv_columns, expected_columns)):
+            if csv_col != expected_col:
+                mismatched_columns.append({
+                    "index": i,
+                    "csv_column": csv_col,
+                    "expected_column": expected_col
+                })
+        
+        if mismatched_columns:
+            return {
+                "valid": False,
+                "error": "Column name mismatches",
+                "mismatched_columns": mismatched_columns
+            }
+        
+        return {"valid": True, "message": "CSV structure is valid"}
+        
+    except Exception as e:
+        return {"valid": False, "error": f"Validation error: {str(e)}"}
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
    """Improved user data upsert with better duplicate prevention"""
