@@ -59,7 +59,7 @@ SCORE_COLUMNS = [
     "a_lv_70", "a_lv_66", "tgat1", "tpat5", "vnet_51", "tgat3", "tpat22",
     "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
     "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
-    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa21",
+    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25","gpa21",
     "tpat11", "tpat12", "tpat13"
 ]
 
