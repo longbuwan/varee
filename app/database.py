@@ -23,12 +23,12 @@ class Config:
 
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
-    "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
-    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "userId", "name", "gpax", "tgat", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa26", "gpa27", "gpa28",
+    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
     # Selection columns for 10 universities
     "selection_1_university", "selection_1_faculty", "selection_1_field",
     "selection_2_university", "selection_2_faculty", "selection_2_field",
@@ -42,15 +42,14 @@ USER_COLUMNS = [
     "selection_10_university", "selection_10_faculty", "selection_10_field"
 ]
 
-# Fixed: Changed from set to list
-NUMERIC_COLUMNS = [
-    "userId", "name", "gpax", "tgat", "tgat1","tgat2", "tgat3", "tpat1","tpat11", "tpat12", "tpat13",
-    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+NUMERIC_COLUMNS = {
+    "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
+    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa26", "gpa27", "gpa28",
-]
+    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28"
+}
 
 # Updated score columns based on the CSV structure
 SCORE_COLUMNS = [
@@ -60,7 +59,7 @@ SCORE_COLUMNS = [
     "a_lv_70", "a_lv_66", "tgat1", "tpat5", "vnet_51", "tgat3", "tpat22",
     "tpat2", "gpa28", "gpa22", "gpa23", "tu062", "ged_score", "tu002", "tu005", "tu006",
     "tu004", "tu071", "tu061", "tu072", "tu003", "tpat1", "tpat23", "gpa24", "gpa26",
-    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25","gpa21",
+    "gpa27", "su003", "su002", "su004", "su001", "priority_score", "gpa25", "gpa21",
     "tpat11", "tpat12", "tpat13"
 ]
 
@@ -158,12 +157,7 @@ def setup_google_sheets():
         print(f"Error setting up Google Sheets: {e}")
         raise
 
-# Initialize sheets (with proper error handling)
-try:
-    worksheet, datasheet = setup_google_sheets()
-except Exception as e:
-    print(f"Warning: Could not initialize Google Sheets: {e}")
-    worksheet, datasheet = None, None
+worksheet, datasheet = setup_google_sheets()
 
 # ---- SCORE CALCULATION FUNCTIONS ----
 def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[str, Any]:
@@ -334,81 +328,90 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
 
 # ---- DATA LOADING FUNCTIONS ----
 def load_and_cache_data():
-    """Enhanced data loading with better error handling"""
+    """Load data from Google Sheets and cache it"""
     with data_cache._lock:
         if data_cache.is_cache_valid():
             return
         
-        if worksheet is None or datasheet is None:
-            raise Exception("Google Sheets not properly initialized")
-        
         try:
             print("Loading data from Google Sheets...")
             
-            # Load user data (existing code works)
+            # Load user data
             worksheet_values = worksheet.get_all_values()
-            if worksheet_values:
-                # [Your existing user data loading code here]
-                pass
             
-            # Load university data with error handling
-            try:
-                university_records = datasheet.get_all_records()
-                if not university_records:
-                    data_cache.university_data_df = pd.DataFrame()
-                    data_cache.university_faculties = {}
-                    data_cache.faculty_fields = {}
-                    data_cache.last_update = datetime.now()
-                    return
+            if worksheet_values:
+                # Ensure all rows have the same length
+                max_cols = len(USER_COLUMNS)
+                normalized_rows = []
+                for row in worksheet_values:
+                    if len(row) < max_cols:
+                        row.extend([''] * (max_cols - len(row)))
+                    normalized_rows.append(row[:max_cols])
                 
-                university_df = pd.DataFrame(university_records)
-                print(f"University data columns: {list(university_df.columns)}")
+                user_df = pd.DataFrame(normalized_rows, columns=USER_COLUMNS)
                 
-                # Column mapping for common alternatives
-                column_mapping = {
-                    'university': 'University',
-                    'uni': 'University', 
-                    'school': 'University',
-                    'faculty': 'Faculty',
-                    'department': 'Faculty',
-                    'program': 'Program',
-                    'course': 'Program',
-                    'major': 'Program'
-                }
+                # Convert numeric columns
+                for col in NUMERIC_COLUMNS:
+                    if col in user_df.columns:
+                        user_df[col] = pd.to_numeric(user_df[col], errors='coerce')
                 
-                # Apply mapping
-                for old_name, new_name in column_mapping.items():
-                    if old_name in university_df.columns and new_name not in university_df.columns:
-                        university_df = university_df.rename(columns={old_name: new_name})
-                        print(f"Mapped '{old_name}' to '{new_name}'")
+                data_cache.user_data_df = user_df
                 
-                # Check required columns
-                required_cols = ['University', 'Faculty', 'Program']
-                missing_cols = [col for col in required_cols if col not in university_df.columns]
+                # Create user lookup dictionary
+                data_cache.user_data_dict = {}
+                for _, row in user_df.iterrows():
+                    if row['userId']:
+                        data_cache.user_data_dict[row['userId']] = row.to_dict()
+            
+            # Load university data
+            university_records = datasheet.get_all_records()
+            data_cache.university_data_df = pd.DataFrame(university_records)
+            
+            # Convert numeric columns for university data
+            if not data_cache.university_data_df.empty:
+                for col in UNIVERSITY_NUMERIC_COLUMNS:
+                    if col in data_cache.university_data_df.columns:
+                        data_cache.university_data_df[col] = pd.to_numeric(
+                            data_cache.university_data_df[col], errors='coerce'
+                        )
+            
+            # Pre-compute mappings
+            if not data_cache.university_data_df.empty:
+                # Cache faculties by university
+                faculty_groups = data_cache.university_data_df.groupby('University')['Faculty'].apply(
+                    lambda x: x.dropna().unique().tolist()
+                ).to_dict()
+                data_cache.university_faculties = faculty_groups
                 
-                if missing_cols:
-                    print(f"ERROR: Missing columns: {missing_cols}")
-                    print(f"Available columns: {list(university_df.columns)}")
-                    # Create empty structures to prevent crashes
-                    data_cache.university_data_df = pd.DataFrame()
-                    data_cache.university_faculties = {}
-                    data_cache.faculty_fields = {}
-                else:
-                    # Continue with normal processing
-                    data_cache.university_data_df = university_df
-                    # [Rest of your existing code]
+                # Cache fields by university+faculty combination
+                for (university, faculty), group in data_cache.university_data_df.groupby(['University', 'Faculty']):
+                    key = f"{university}|{faculty}"
+                    fields = []
                     
-            except Exception as e:
-                print(f"Error loading university data: {e}")
-                data_cache.university_data_df = pd.DataFrame()
-                data_cache.university_faculties = {}
-                data_cache.faculty_fields = {}
+                    for _, row in group.iterrows():
+                        program = row.get('Program', '')
+                        program_shared = row.get('Program_shared', '')
+                        
+                        if pd.isna(program) or str(program).strip() == '':
+                            continue
+                            
+                        if pd.notna(program_shared) and str(program_shared).strip() != '':
+                            field_display = f"{program}:{program_shared}"
+                        else:
+                            field_display = str(program)
+                        
+                        if field_display not in fields:
+                            fields.append(field_display)
+                    
+                    data_cache.faculty_fields[key] = fields
             
             data_cache.last_update = datetime.now()
+            print("Data loaded successfully")
             
         except Exception as e:
             print(f"Error loading data: {e}")
             raise
+
 # ---- HELPER FUNCTIONS ----
 @lru_cache(maxsize=128)
 def get_cached_faculties(university: str) -> List[str]:
@@ -465,15 +468,12 @@ class ScoreSubmission(BaseModel):
     userId: Optional[str]
     name: Optional[str]
     gpax: Optional[float] = None
-    tgat: Optional[float] = None
     tgat1: Optional[float] = None
     tgat2: Optional[float] = None
     tgat3: Optional[float] = None
-    tpat1: Optional[float] = None
     tpat11: Optional[float] = None
     tpat12: Optional[float] = None
     tpat13: Optional[float] = None
-    tpat2: Optional[float] = None
     tpat21: Optional[float] = None
     tpat22: Optional[float] = None
     tpat23: Optional[float] = None
@@ -515,171 +515,95 @@ class MultipleSelectionsSubmission(BaseModel):
     name: str
     selections: List[UniversitySelection]
 
-def validate_csv_structure():
-    """Validate that the CSV structure matches USER_COLUMNS"""
-    try:
-        load_and_cache_data()
-        
-        if data_cache.user_data_df is None:
-            return {"valid": False, "error": "No data loaded"}
-        
-        csv_columns = list(data_cache.user_data_df.columns)
-        expected_columns = USER_COLUMNS
-        
-        if len(csv_columns) != len(expected_columns):
-            return {
-                "valid": False,
-                "error": "Column count mismatch",
-                "csv_count": len(csv_columns),
-                "expected_count": len(expected_columns),
-                "csv_columns": csv_columns,
-                "expected_columns": expected_columns
-            }
-        
-        mismatched_columns = []
-        for i, (csv_col, expected_col) in enumerate(zip(csv_columns, expected_columns)):
-            if csv_col != expected_col:
-                mismatched_columns.append({
-                    "index": i,
-                    "csv_column": csv_col,
-                    "expected_column": expected_col
-                })
-        
-        if mismatched_columns:
-            return {
-                "valid": False,
-                "error": "Column name mismatches",
-                "mismatched_columns": mismatched_columns
-            }
-        
-        return {"valid": True, "message": "CSV structure is valid"}
-        
-    except Exception as e:
-        return {"valid": False, "error": f"Validation error: {str(e)}"}
-
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
-    """Improved user data upsert with better duplicate prevention"""
-    try:
-        # First, get all current data to find existing row
-        all_values = worksheet.get_all_values()
-        
-        # Find existing row by userId (case-insensitive and strip whitespace)
-        existing_row_index = None
-        target_user_id = str(data.userId).strip().lower()
-        
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0:
-                current_user_id = str(row[0]).strip().lower()
-                if current_user_id == target_user_id:
-                    existing_row_index = i + 1  # Google Sheets is 1-indexed
-                    break
-        
-        # Get current user data from cache
-        user_data = get_user_data_fast(data.userId)
-        
-        # Prepare new row data
-        new_row = [""] * len(USER_COLUMNS)
-        
-        # Set provided data
-        for i, col in enumerate(USER_COLUMNS):
-            if col.startswith("selection_"):
-                # Keep existing selection data if not being updated
-                if user_data and col in user_data and user_data[col] is not None:
-                    new_row[i] = str(user_data[col])
-            else:
-                val = getattr(data, col, None)
-                if val is not None:
-                    new_row[i] = str(val)
-                elif user_data and col in user_data and user_data[col] is not None:
-                    # Keep existing data for fields not being updated
-                    new_row[i] = str(user_data[col])
-        
-        # Single sheet operation
-        if existing_row_index:
-            # Update existing row
-            end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
-            worksheet.update(cell_range, [new_row])
-            print(f"Updated existing row {existing_row_index} for user {data.userId}")
+    """Optimized user data upsert with minimal sheet operations"""
+    # Get current user data from cache first
+    user_data = get_user_data_fast(data.userId)
+    
+    # Prepare new row data
+    new_row = [""] * len(USER_COLUMNS)
+    
+    # Set provided data
+    for i, col in enumerate(USER_COLUMNS):
+        if col.startswith("selection_"):
+            # Keep existing selection data
+            if user_data and col in user_data:
+                new_row[i] = str(user_data[col]) if user_data[col] is not None else ""
         else:
-            # Add new row
-            worksheet.append_row(new_row)
-            print(f"Added new row for user {data.userId}")
+            val = getattr(data, col, None)
+            new_row[i] = str(val) if val is not None else ""
+    
+    # Single sheet operation
+    if user_data:
+        # Update existing row - find row number
+        all_values = worksheet.get_all_values()
+        row_index = None
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0 and row[0] == data.userId:
+                row_index = i + 1
+                break
         
-        # Invalidate cache to force refresh
-        data_cache.invalidate_cache()
-        
-    except Exception as e:
-        print(f"Error in upsert_user_data_optimized: {e}")
-        raise
+        if row_index:
+            end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
+            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+            worksheet.update(cell_range, [new_row])
+    else:
+        # Add new row
+        worksheet.append_row(new_row)
+    
+    # Invalidate cache to force refresh
+    data_cache.invalidate_cache()
 
 def save_multiple_selections(worksheet, user_id: str, name: str, selections: List[Dict]):
-    """Improved multiple selections save with better duplicate handling"""
-    try:
-        # Get all current data to find existing row
+    """Save multiple university selections"""
+    # Get existing user data
+    user_data = get_user_data_fast(user_id)
+    
+    # Prepare new row data
+    new_row = [""] * len(USER_COLUMNS)
+    
+    # Set basic user info
+    new_row[0] = user_id
+    new_row[1] = name
+    
+    # Copy existing score data if available
+    if user_data:
+        for i, col in enumerate(USER_COLUMNS[2:], 2):
+            if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
+                new_row[i] = str(user_data[col])
+
+    # Add selections (find the index where selections start)
+    selection_start_idx = USER_COLUMNS.index("selection_1_university")
+    
+    for idx, selection in enumerate(selections):
+        if idx < 10:  # Max 10 selections
+            base_idx = selection_start_idx + (idx * 3)
+            new_row[base_idx] = selection.get("university", "")
+            new_row[base_idx + 1] = selection.get("faculty", "")
+            new_row[base_idx + 2] = selection.get("field", "")
+
+    # Single sheet operation
+    if user_data:
+        # Update existing row
         all_values = worksheet.get_all_values()
-        
-        # Find existing row by userId
-        existing_row_index = None
-        target_user_id = str(user_id).strip().lower()
-        
+        row_index = None
         for i, row in enumerate(all_values):
-            if row and len(row) > 0:
-                current_user_id = str(row[0]).strip().lower()
-                if current_user_id == target_user_id:
-                    existing_row_index = i + 1
-                    break
+            if row and len(row) > 0 and row[0] == user_id:
+                row_index = i + 1
+                break
         
-        # Get existing user data
-        user_data = get_user_data_fast(user_id)
-        
-        # Prepare new row data
-        new_row = [""] * len(USER_COLUMNS)
-        
-        # Set basic user info
-        new_row[0] = user_id
-        new_row[1] = name
-        
-        # Copy existing score data if available
-        if user_data:
-            for i, col in enumerate(USER_COLUMNS[2:], 2):
-                if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
-                    new_row[i] = str(user_data[col])
-
-        # Clear all existing selections first
-        selection_start_idx = USER_COLUMNS.index("selection_1_university")
-        for i in range(selection_start_idx, len(USER_COLUMNS)):
-            new_row[i] = ""
-
-        # Add new selections
-        for idx, selection in enumerate(selections):
-            if idx < 10:  # Max 10 selections
-                base_idx = selection_start_idx + (idx * 3)
-                if base_idx + 2 < len(new_row):
-                    new_row[base_idx] = selection.get("university", "")
-                    new_row[base_idx + 1] = selection.get("faculty", "")
-                    new_row[base_idx + 2] = selection.get("field", "")
-
-        # Single sheet operation
-        if existing_row_index:
-            # Update existing row
+        if row_index:
             end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
+            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
             worksheet.update(cell_range, [new_row])
-            print(f"Updated selections for existing user {user_id} at row {existing_row_index}")
-        else:
-            # Add new row
-            worksheet.append_row(new_row)
-            print(f"Added new user {user_id} with selections")
+    else:
+        worksheet.append_row(new_row)
 
-        # Invalidate cache
-        data_cache.invalidate_cache()
-        
-    except Exception as e:
-        print(f"Error in save_multiple_selections: {e}")
-        raise
+    # Invalidate cache
+    data_cache.invalidate_cache()
 
+# ---- API ENDPOINTS ----
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
     """Get faculties for a university"""
@@ -699,6 +623,7 @@ async def find_field(data: FacultyRequest):
     except Exception as e:
         print(f"Error finding fields: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find fields: {str(e)}")
+
 
 @router.post("/api/calculate_scores")
 async def calculate_scores(data: dict):
@@ -887,9 +812,6 @@ async def save_score(data: ScoreSubmission):
         if not data.userId:
             raise HTTPException(status_code=400, detail="userId is required")
         
-        if worksheet is None:
-            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
-        
         upsert_user_data_optimized(worksheet, data)
         return {"message": "Data saved to Google Sheets successfully"}
     except HTTPException:
@@ -910,9 +832,6 @@ async def submit_multiple_selections(data: MultipleSelectionsSubmission):
         
         if not data.selections:
             raise HTTPException(status_code=400, detail="selections are required")
-        
-        if worksheet is None:
-            raise HTTPException(status_code=500, detail="Google Sheets not initialized")
         
         # Convert selections to dict format
         selections_dict = []
@@ -1113,25 +1032,6 @@ async def refresh_cache():
     except Exception as e:
         print(f"Error refreshing cache: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to refresh cache: {str(e)}")
-
-@router.get("/api/health")
-async def health_check():
-    """Health check endpoint"""
-    try:
-        load_and_cache_data()
-        return {
-            "status": "healthy",
-            "cache_valid": data_cache.is_cache_valid(),
-            "last_update": data_cache.last_update.isoformat() if data_cache.last_update else None,
-            "user_data_loaded": data_cache.user_data_df is not None,
-            "university_data_loaded": data_cache.university_data_df is not None,
-            "google_sheets_initialized": worksheet is not None and datasheet is not None
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
 
 # Include router
 app.include_router(router)
