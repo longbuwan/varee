@@ -520,44 +520,60 @@ class MultipleSelectionsSubmission(BaseModel):
 
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
-    """Optimized user data upsert with minimal sheet operations"""
-    # Get current user data from cache first
-    user_data = get_user_data_fast(data.userId)
-    
-    # Prepare new row data
-    new_row = [""] * len(USER_COLUMNS)
-    
-    # Set provided data
-    for i, col in enumerate(USER_COLUMNS):
-        if col.startswith("selection_"):
-            # Keep existing selection data
-            if user_data and col in user_data:
-                new_row[i] = str(user_data[col]) if user_data[col] is not None else ""
-        else:
-            val = getattr(data, col, None)
-            new_row[i] = str(val) if val is not None else ""
-    
-    # Single sheet operation
-    if user_data:
-        # Update existing row - find row number
+   """Improved user data upsert with better duplicate prevention"""
+    try:
+        # First, get all current data to find existing row
         all_values = worksheet.get_all_values()
-        row_index = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == data.userId:
-                row_index = i + 1
-                break
         
-        if row_index:
+        # Find existing row by userId (case-insensitive and strip whitespace)
+        existing_row_index = None
+        target_user_id = str(data.userId).strip().lower()
+        
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0:
+                current_user_id = str(row[0]).strip().lower()
+                if current_user_id == target_user_id:
+                    existing_row_index = i + 1  # Google Sheets is 1-indexed
+                    break
+        
+        # Get current user data from cache
+        user_data = get_user_data_fast(data.userId)
+        
+        # Prepare new row data
+        new_row = [""] * len(USER_COLUMNS)
+        
+        # Set provided data
+        for i, col in enumerate(USER_COLUMNS):
+            if col.startswith("selection_"):
+                # Keep existing selection data if not being updated
+                if user_data and col in user_data and user_data[col] is not None:
+                    new_row[i] = str(user_data[col])
+            else:
+                val = getattr(data, col, None)
+                if val is not None:
+                    new_row[i] = str(val)
+                elif user_data and col in user_data and user_data[col] is not None:
+                    # Keep existing data for fields not being updated
+                    new_row[i] = str(user_data[col])
+        
+        # Single sheet operation
+        if existing_row_index:
+            # Update existing row
             end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
             worksheet.update(cell_range, [new_row])
-    else:
-        # Add new row
-        worksheet.append_row(new_row)
-    
-    # Invalidate cache to force refresh
-    data_cache.invalidate_cache()
-
+            print(f"Updated existing row {existing_row_index} for user {data.userId}")
+        else:
+            # Add new row
+            worksheet.append_row(new_row)
+            print(f"Added new row for user {data.userId}")
+        
+        # Invalidate cache to force refresh
+        data_cache.invalidate_cache()
+        
+    except Exception as e:
+        print(f"Error in upsert_user_data_optimized: {e}")
+        raise
 def save_multiple_selections(worksheet, user_id: str, name: str, selections: List[Dict]):
     """Save multiple university selections"""
     # Get existing user data
