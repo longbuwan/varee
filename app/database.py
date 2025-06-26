@@ -468,12 +468,15 @@ class ScoreSubmission(BaseModel):
     userId: Optional[str]
     name: Optional[str]
     gpax: Optional[float] = None
+    tgat: Optional[float] = None
     tgat1: Optional[float] = None
     tgat2: Optional[float] = None
     tgat3: Optional[float] = None
+    tpat1: Optional[float] = None
     tpat11: Optional[float] = None
     tpat12: Optional[float] = None
     tpat13: Optional[float] = None
+    tpat2: Optional[float] = None
     tpat21: Optional[float] = None
     tpat22: Optional[float] = None
     tpat23: Optional[float] = None
