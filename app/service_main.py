@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -130,36 +129,50 @@ def handle_text_message(event):
         return
     
     try:
-        # Get conversation history with token management
-        messages = manage_conversation_history(user_id, user_message)
+        # Build simple conversation context (closer to your original)
+        conversation_input = SYSTEM_PROMPT + "\n\n"
         
-        # Build conversation context using your original format
-        conversation_context = SYSTEM_PROMPT + "\n\n"
+        # Add conversation history if exists
+        if user_id in user_conversations and user_conversations[user_id]:
+            conversation_input += "ประวัติการสนทนา:\n"
+            # Only include last 5 exchanges to save tokens
+            recent_messages = user_conversations[user_id][-10:]  # Last 10 messages (5 pairs)
+            for msg in recent_messages:
+                role_thai = "ผู้ใช้" if msg["role"] == "user" else "ผู้ช่วย"
+                conversation_input += f"{role_thai}: {msg['content']}\n"
+            conversation_input += "\n"
         
-        # Add conversation history (excluding system message and current message)
-        for msg in user_conversations[user_id][:-1]:  # All except the last (current) message
-            role_thai = "ผู้ใช้" if msg["role"] == "user" else "ผู้ช่วย"
-            conversation_context += f"{role_thai}: {msg['content']}\n"
+        # Add current message (same format as original)
+        conversation_input += f"ผู้ใช้: {user_message}"
         
-        # Add current message
-        conversation_context += f"ผู้ใช้: {user_message}"
+        print(f"API Input length: {len(conversation_input)} characters")  # Debug
         
-        # Use your original API call format that was working
+        # Use your exact original API call format
         response = client.responses.create(
             model="gpt-4.1",
-            input=conversation_context
+            input=conversation_input
         )
         
         assistant_response = response.output_text
         
-        # Add assistant response to history
-        add_assistant_response(user_id, assistant_response)
+        # Add to conversation history
+        if user_id not in user_conversations:
+            user_conversations[user_id] = []
+        
+        user_conversations[user_id].append({"role": "user", "content": user_message})
+        user_conversations[user_id].append({"role": "assistant", "content": assistant_response})
+        
+        # Keep only last 20 messages per user
+        if len(user_conversations[user_id]) > 20:
+            user_conversations[user_id] = user_conversations[user_id][-20:]
         
         # Send response
         send_message(event, assistant_response)
         
     except Exception as e:
-        print(f"Error calling OpenAI API: {e}")
+        print(f"Detailed Error: {type(e).__name__}: {str(e)}")  # More detailed error logging
+        # Also print the conversation input for debugging
+        print(f"Input that caused error: {conversation_input[:500]}...")
         error_message = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
         send_message(event, error_message)
 
