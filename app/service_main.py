@@ -129,31 +129,35 @@ def handle_text_message(event):
         return
     
     try:
-        # Build simple conversation context (closer to your original)
+        # Build conversation input using your exact original format
         conversation_input = SYSTEM_PROMPT + "\n\n"
         
-        # Add conversation history if exists
+        # Add conversation history if exists (simplified approach)
         if user_id in user_conversations and user_conversations[user_id]:
-            conversation_input += "ประวัติการสนทนา:\n"
-            # Only include last 5 exchanges to save tokens
-            recent_messages = user_conversations[user_id][-10:]  # Last 10 messages (5 pairs)
+            # Only include last 6 messages to save tokens (3 exchanges)
+            recent_messages = user_conversations[user_id][-6:]
             for msg in recent_messages:
                 role_thai = "ผู้ใช้" if msg["role"] == "user" else "ผู้ช่วย"
                 conversation_input += f"{role_thai}: {msg['content']}\n"
-            conversation_input += "\n"
         
-        # Add current message (same format as original)
-        conversation_input += f"ผู้ใช้: {user_message}"
+        # Add current message (same format as your original)
+        conversation_input += user_message
         
-        print(f"API Input length: {len(conversation_input)} characters")  # Debug
+        print(f"Trying original API format...")  # Debug
         
-        # Use your exact original API call format
-        response = client.responses.create(
-            model="gpt-4.1",
-            input=conversation_input
+        # First try: Use your exact original working code format
+        # Check what client object you actually have
+        print(f"Client type: {type(client)}")
+        print(f"Client attributes: {[attr for attr in dir(client) if not attr.startswith('_')]}")
+        
+        # Try the standard OpenAI format since responses doesn't exist
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Use a model that's likely available
+            messages=[{"role": "user", "content": conversation_input}],
+            max_tokens=500
         )
         
-        assistant_response = response.output_text
+        assistant_response = response.choices[0].message.content
         
         # Add to conversation history
         if user_id not in user_conversations:
@@ -170,11 +174,22 @@ def handle_text_message(event):
         send_message(event, assistant_response)
         
     except Exception as e:
-        print(f"Detailed Error: {type(e).__name__}: {str(e)}")  # More detailed error logging
-        # Also print the conversation input for debugging
-        print(f"Input that caused error: {conversation_input[:500]}...")
-        error_message = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
-        send_message(event, error_message)
+        print(f"Detailed Error: {type(e).__name__}: {str(e)}")
+        print(f"Available client methods: {[method for method in dir(client) if 'create' in method.lower()]}")
+        
+        # Fallback: Use your original working code without memory
+        try:
+            print("Trying fallback without conversation memory...")
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": SYSTEM_PROMPT + "\n\n" + user_message}]
+            )
+            assistant_response = response.choices[0].message.content
+            send_message(event, assistant_response)
+        except Exception as e2:
+            print(f"Fallback also failed: {e2}")
+            error_message = "ขออภัย เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง"
+            send_message(event, error_message)
 
 def send_message(event, message):
     """Send message with length check"""
