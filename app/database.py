@@ -575,54 +575,70 @@ def upsert_user_data_optimized(worksheet, data):
         print(f"Error in upsert_user_data_optimized: {e}")
         raise
 def save_multiple_selections(worksheet, user_id: str, name: str, selections: List[Dict]):
-    """Save multiple university selections"""
-    # Get existing user data
-    user_data = get_user_data_fast(user_id)
-    
-    # Prepare new row data
-    new_row = [""] * len(USER_COLUMNS)
-    
-    # Set basic user info
-    new_row[0] = user_id
-    new_row[1] = name
-    
-    # Copy existing score data if available
-    if user_data:
-        for i, col in enumerate(USER_COLUMNS[2:], 2):
-            if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
-                new_row[i] = str(user_data[col])
-
-    # Add selections (find the index where selections start)
-    selection_start_idx = USER_COLUMNS.index("selection_1_university")
-    
-    for idx, selection in enumerate(selections):
-        if idx < 10:  # Max 10 selections
-            base_idx = selection_start_idx + (idx * 3)
-            new_row[base_idx] = selection.get("university", "")
-            new_row[base_idx + 1] = selection.get("faculty", "")
-            new_row[base_idx + 2] = selection.get("field", "")
-
-    # Single sheet operation
-    if user_data:
-        # Update existing row
+     """Improved multiple selections save with better duplicate handling"""
+    try:
+        # Get all current data to find existing row
         all_values = worksheet.get_all_values()
-        row_index = None
-        for i, row in enumerate(all_values):
-            if row and len(row) > 0 and row[0] == user_id:
-                row_index = i + 1
-                break
         
-        if row_index:
+        # Find existing row by userId
+        existing_row_index = None
+        target_user_id = str(user_id).strip().lower()
+        
+        for i, row in enumerate(all_values):
+            if row and len(row) > 0:
+                current_user_id = str(row[0]).strip().lower()
+                if current_user_id == target_user_id:
+                    existing_row_index = i + 1
+                    break
+        
+        # Get existing user data
+        user_data = get_user_data_fast(user_id)
+        
+        # Prepare new row data
+        new_row = [""] * len(USER_COLUMNS)
+        
+        # Set basic user info
+        new_row[0] = user_id
+        new_row[1] = name
+        
+        # Copy existing score data if available
+        if user_data:
+            for i, col in enumerate(USER_COLUMNS[2:], 2):
+                if col in NUMERIC_COLUMNS and col in user_data and user_data[col] is not None:
+                    new_row[i] = str(user_data[col])
+
+        # Clear all existing selections first
+        selection_start_idx = USER_COLUMNS.index("selection_1_university")
+        for i in range(selection_start_idx, len(USER_COLUMNS)):
+            new_row[i] = ""
+
+        # Add new selections
+        for idx, selection in enumerate(selections):
+            if idx < 10:  # Max 10 selections
+                base_idx = selection_start_idx + (idx * 3)
+                if base_idx + 2 < len(new_row):
+                    new_row[base_idx] = selection.get("university", "")
+                    new_row[base_idx + 1] = selection.get("faculty", "")
+                    new_row[base_idx + 2] = selection.get("field", "")
+
+        # Single sheet operation
+        if existing_row_index:
+            # Update existing row
             end_col_letter = gspread.utils.rowcol_to_a1(1, len(USER_COLUMNS))[:-1]
-            cell_range = f"A{row_index}:{end_col_letter}{row_index}"
+            cell_range = f"A{existing_row_index}:{end_col_letter}{existing_row_index}"
             worksheet.update(cell_range, [new_row])
-    else:
-        worksheet.append_row(new_row)
+            print(f"Updated selections for existing user {user_id} at row {existing_row_index}")
+        else:
+            # Add new row
+            worksheet.append_row(new_row)
+            print(f"Added new user {user_id} with selections")
 
-    # Invalidate cache
-    data_cache.invalidate_cache()
-
-# ---- API ENDPOINTS ----
+        # Invalidate cache
+        data_cache.invalidate_cache()
+        
+    except Exception as e:
+        print(f"Error in save_multiple_selections_improved: {e}")
+        raise
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
     """Get faculties for a university"""
