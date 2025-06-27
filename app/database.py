@@ -1050,185 +1050,145 @@ async def get_user_scores(user_id: str):
     except Exception as e:
         print(f"Error getting user scores: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get scores: {str(e)}")
-        
+class NewProgramRequest(BaseModel):
+    userId: str
+    university: str
+
 @router.post("/api/new_program")
-async def calculate_scores(data: dict, uni: dict):
-    """Calculate scores for all user selections"""
-    user_id = data.get("userId")
+async def find_new_programs(request: NewProgramRequest):
+    """Find alternative programs in a university with good scores"""
+    user_id = request.userId
+    target_university = request.university
+    
     if not user_id:
         raise HTTPException(status_code=400, detail="userId is required")
+    if not target_university:
+        raise HTTPException(status_code=400, detail="university is required")
     
     try:
+        # Get user data
         user_data = get_user_data_fast(user_id)
         if not user_data:
-            return {"error": "User not found", "user_id": user_id}
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get all programs for the target university
+        load_and_cache_data()
+        
+        if data_cache.university_data_df is None or data_cache.university_data_df.empty:
+            raise HTTPException(status_code=404, detail="University data not available")
+        
+        # Filter programs by university
+        university_programs = data_cache.university_data_df[
+            data_cache.university_data_df["University"] == target_university
+        ]
+        
+        if university_programs.empty:
+            raise HTTPException(status_code=404, detail=f"No programs found for university: {target_university}")
         
         results = []
         
-        # Check each of the 10 selections with correct column names
-        for i in range(1, 11):
-            university = user_data.get(f"selection_{i}_university")
-            faculty = user_data.get(f"selection_{i}_faculty")
-            field = user_data.get(f"selection_{i}_field")
-            
-            selection_result = {
-                "selection_number": i,
-                "university": university,
-                "faculty": faculty,
-                "field": field,
-                "status": "incomplete",
-                "score": None,
-                "score_d": None,
-                "message": ""
-            }
-            
-            if not (university and faculty and field):
-                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
-                results.append(selection_result)
-                continue
-            
-            # Find program
-            program = find_program_fast(university, faculty, field)
-            
-            if program is None:
-                selection_result["status"] = "not_found"
-                selection_result["message"] = "Program not found in database"
-                results.append(selection_result)
-                continue
-            
-            # Check GPAX requirement with safe conversion
-            gpax_req = safe_float_conversion(program.get("gpax_req"))
-            user_gpax = safe_float_conversion(user_data.get("gpax"))
-            
-            # Get projected minimum score with safe conversion
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
-            if score_p is None:
-                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+        # Calculate scores for each program in the university
+        for _, program in university_programs.iterrows():
+            try:
+                university = program.get("University", "")
+                faculty = program.get("Faculty", "")
+                program_name = program.get("Program", "")
+                
+                if not all([university, faculty, program_name]):
+                    continue
+                
+                selection_result = {
+                    "university": university,
+                    "faculty": faculty,
+                    "field": program_name,
+                    "status": "incomplete",
+                    "score": None,
+                    "score_d": None,
+                    "should": "false",
+                    "message": ""
+                }
+                
+                # Check GPAX requirement with safe conversion
+                gpax_req = safe_float_conversion(program.get("gpax_req"))
+                user_gpax = safe_float_conversion(user_data.get("gpax"))
+                
+                # Get projected minimum score with safe conversion
+                score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
                 if score_p is None:
-                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
-            
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
-                selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                    if score_p is None:
+                        score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+                
+                # Check GPAX requirement
+                if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+                    selection_result["status"] = "gpax_insufficient"
+                    selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
+                    selection_result["gpax_required"] = gpax_req
+                    selection_result["gpax_current"] = user_gpax
+                    results.append(selection_result)
+                    continue
+                
+                # Calculate score
+                score_result = calculate_program_score(user_data, program)
+                
+                if score_result["success"]:
+                    selection_result["status"] = "calculated"
+                    selection_result["score"] = score_result["score"]
+                    selection_result["message"] = score_result["message"]
+                    selection_result["score_breakdown"] = score_result["score_breakdown"]
+                    selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
+                    
+                    # Determine if this program should be recommended
+                    if selection_result["score_d"] is not None and selection_result["score_d"] > 0:
+                        selection_result["should"] = "true"
+                    else:
+                        selection_result["should"] = "false"
+                        
+                else:
+                    selection_result["status"] = "error"
+                    selection_result["message"] = score_result["message"]
+                    if score_result["error"] == "missing_scores":
+                        selection_result["missing_scores"] = score_result["missing_scores"]
+                        selection_result["missing_count"] = score_result["missing_count"]
+                        selection_result["total_required"] = score_result["total_required"]
+                
                 results.append(selection_result)
+                
+            except Exception as program_error:
+                print(f"Error processing program {program.get('Program', 'Unknown')}: {program_error}")
                 continue
-            
-            # Calculate score
-            score_result = calculate_program_score(user_data, program)
-            
-            if score_result["success"]:
-                selection_result["status"] = "calculated"
-                selection_result["score"] = score_result["score"]
-                selection_result["message"] = score_result["message"]
-                selection_result["score_breakdown"] = score_result["score_breakdown"]
-                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
-            else:
-                selection_result["status"] = "error"
-                selection_result["message"] = score_result["message"]
-                if score_result["error"] == "missing_scores":
-                    selection_result["missing_scores"] = score_result["missing_scores"]
-                    selection_result["missing_count"] = score_result["missing_count"]
-                    selection_result["total_required"] = score_result["total_required"]
-
-            results.append(selection_result)
         
-        # Calculate summary
+        # Filter and sort results
         calculated_scores = [r["score"] for r in results if r["score"] is not None]
+        recommended_programs = [r for r in results if r["should"] == "true"]
         
-        universitiy_c = uni.get("University")
-        faculties = get_cached_faculties(universitiy_c)
-        feilds = []
-        programs = []
-        scores = []
-        for i in faculties:
-            field_c = get_cached_fields(universitiy_c, i)
-            feilds.append(field_c)
-            for i in feilds:
-                programs = find_program_fast(universitiy_c, faculties, feilds)
-        for i in programs:
-            
-            # Check GPAX requirement with safe conversion
-            gpax_req = safe_float_conversion(program.get("gpax_req"))
-            user_gpax = safe_float_conversion(user_data.get("gpax"))
-            
-            # Get projected minimum score with safe conversion
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
-            if score_p is None:
-                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
-                if score_p is None:
-                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
-            
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
-                selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
-                results.append(selection_result)
-                continue
-            
-            # Calculate score
-            score_result = calculate_program_score(user_data, program)
-            
-            
-            if score_result["success"]:
-                selection_result["status"] = "calculated"
-                selection_result["score"] = score_result["score"]
-                selection_result["message"] = score_result["message"]
-                selection_result["score_breakdown"] = score_result["score_breakdown"]
-                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
-            else:
-                selection_result["status"] = "error"
-                selection_result["message"] = score_result["message"]
-                if score_result["error"] == "missing_scores":
-                    selection_result["missing_scores"] = score_result["missing_scores"]
-                    selection_result["missing_count"] = score_result["missing_count"]
-                    selection_result["total_required"] = score_result["total_required"]
-            if selection_result["score_d"] > 0:
-                selection_result["should"] = "true"
-            else:
-                selection_result["should"] = "false"
-            results.append(selection_result)
-
-
+        # Sort recommended programs by score_d (highest first)
+        recommended_programs.sort(key=lambda x: x.get("score_d", 0), reverse=True)
+        
         response_data = {
             "user_id": user_id,
             "user_name": user_data.get("name"),
             "user_gpax": user_data.get("gpax"),
+            "target_university": target_university,
             "results": results,
+            "recommended_programs": recommended_programs,
             "summary": {
-                "total_selections": len([r for r in results if r["university"]]),
-                "calculated_scores": len(calculated_scores),
-                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
+                "total_programs": len(results),
+                "calculated_programs": len([r for r in results if r["status"] == "calculated"]),
+                "recommended_programs": len(recommended_programs),
                 "highest_score": max(calculated_scores) if calculated_scores else 0,
                 "lowest_score": min(calculated_scores) if calculated_scores else 0,
                 "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
             }
         }
         
-        if "error" in response_data:
-            raise HTTPException(status_code=404, detail=response_data["error"])
-        
         return response_data
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error calculating scores: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
-
-@router.post("/api/refresh_cache")
-async def refresh_cache():
-    """Manually refresh the data cache"""
-    try:
-        data_cache.invalidate_cache()
-        load_and_cache_data()
-        return {"message": "Cache refreshed successfully"}
-    except Exception as e:
-        print(f"Error refreshing cache: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to refresh cache: {str(e)}")
-
+        print(f"Error finding new programs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
 # Include router
 app.include_router(router)
 
