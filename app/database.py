@@ -338,7 +338,7 @@ def load_and_cache_data():
             
             # Load user data
             worksheet_values = worksheet.get_all_values()
-            
+            print("loaded values")
             if worksheet_values:
                 # Ensure all rows have the same length
                 max_cols = len(USER_COLUMNS)
@@ -347,9 +347,8 @@ def load_and_cache_data():
                     if len(row) < max_cols:
                         row.extend([''] * (max_cols - len(row)))
                     normalized_rows.append(row[:max_cols])
-                
                 user_df = pd.DataFrame(normalized_rows, columns=USER_COLUMNS)
-                
+                print("normalized")
                 # Convert numeric columns
                 for col in NUMERIC_COLUMNS:
                     if col in user_df.columns:
@@ -364,9 +363,10 @@ def load_and_cache_data():
                         data_cache.user_data_dict[row['userId']] = row.to_dict()
             
             # Load university data
+            print("loading university")
             university_records = datasheet.get_all_records()
             data_cache.university_data_df = pd.DataFrame(university_records)
-            
+            print("loaded university")
             # Convert numeric columns for university data
             if not data_cache.university_data_df.empty:
                 for col in UNIVERSITY_NUMERIC_COLUMNS:
@@ -382,7 +382,7 @@ def load_and_cache_data():
                     lambda x: x.dropna().unique().tolist()
                 ).to_dict()
                 data_cache.university_faculties = faculty_groups
-                
+                print("loading faculties")
                 # Cache fields by university+faculty combination
                 for (university, faculty), group in data_cache.university_data_df.groupby(['University', 'Faculty']):
                     key = f"{university}|{faculty}"
@@ -404,7 +404,7 @@ def load_and_cache_data():
                             fields.append(field_display)
                     
                     data_cache.faculty_fields[key] = fields
-            
+                print("done loading")
             data_cache.last_update = datetime.now()
             print("Data loaded successfully")
             
