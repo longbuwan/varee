@@ -23,8 +23,8 @@ class Config:
 
 # ---- COLUMN DEFINITIONS ----
 USER_COLUMNS = [
-    "userId", "name", "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "userId", "name", "gpax", "tgat", "tgat1", "tgat2", "tgat3", "tpat1", "tpat11", "tpat12", "tpat13",
+    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
@@ -43,8 +43,8 @@ USER_COLUMNS = [
 ]
 
 NUMERIC_COLUMNS = {
-    "gpax", "tgat1", "tgat2", "tgat3", "tpat11", "tpat12", "tpat13",
-    "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
+    "gpax", "tgat", "tgat1", "tgat2", "tgat3", "tpat1", "tpat11", "tpat12", "tpat13",
+    "tpat2", "tpat21", "tpat22", "tpat23", "tpat3", "tpat4", "tpat5",
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
@@ -82,6 +82,13 @@ def safe_float_conversion(value, default=None):
         return float(value)
     except (ValueError, TypeError):
         return default
+
+def calculate_average(values):
+    """Calculate average of valid numeric values"""
+    valid_values = [safe_float_conversion(v) for v in values if safe_float_conversion(v) is not None]
+    if not valid_values:
+        return None
+    return sum(valid_values) / len(valid_values)
 
 def safe_numeric_comparison(val1, val2, operator='<'):
     """Safely compare two values after converting to float"""
@@ -468,12 +475,15 @@ class ScoreSubmission(BaseModel):
     userId: Optional[str]
     name: Optional[str]
     gpax: Optional[float] = None
+    tgat: Optional[float] = None
     tgat1: Optional[float] = None
     tgat2: Optional[float] = None
     tgat3: Optional[float] = None
+    tpat1: Optional[float] = None
     tpat11: Optional[float] = None
     tpat12: Optional[float] = None
     tpat13: Optional[float] = None
+    tpat2: Optional[float] = None
     tpat21: Optional[float] = None
     tpat22: Optional[float] = None
     tpat23: Optional[float] = None
@@ -517,19 +527,33 @@ class MultipleSelectionsSubmission(BaseModel):
 
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
-    """Optimized user data upsert with minimal sheet operations"""
+    """Optimized user data upsert with minimal sheet operations and average calculations"""
     # Get current user data from cache first
     user_data = get_user_data_fast(data.userId)
     
     # Prepare new row data
     new_row = [""] * len(USER_COLUMNS)
     
-    # Set provided data
+    # Calculate averages
+    tgat_avg = calculate_average([data.tgat1, data.tgat2, data.tgat3])
+    tpat1_avg = calculate_average([data.tpat11, data.tpat12, data.tpat13])
+    tpat2_avg = calculate_average([data.tpat21, data.tpat22, data.tpat23])
+    
+    # Set provided data and calculated averages
     for i, col in enumerate(USER_COLUMNS):
         if col.startswith("selection_"):
             # Keep existing selection data
             if user_data and col in user_data:
                 new_row[i] = str(user_data[col]) if user_data[col] is not None else ""
+        elif col == "tgat":
+            # Set calculated TGAT average
+            new_row[i] = str(tgat_avg) if tgat_avg is not None else ""
+        elif col == "tpat1":
+            # Set calculated TPAT1 average
+            new_row[i] = str(tpat1_avg) if tpat1_avg is not None else ""
+        elif col == "tpat2":
+            # Set calculated TPAT2 average
+            new_row[i] = str(tpat2_avg) if tpat2_avg is not None else ""
         else:
             val = getattr(data, col, None)
             new_row[i] = str(val) if val is not None else ""
@@ -790,6 +814,11 @@ async def debug_user_data(user_id: str):
             "user_id": user_id,
             "user_name": user_data.get("name"),
             "user_gpax": user_data.get("gpax"),
+            "calculated_averages": {
+                "tgat": user_data.get("tgat"),
+                "tpat1": user_data.get("tpat1"),
+                "tpat2": user_data.get("tpat2")
+            },
             "selections": selections,
             "total_selections": len(selections),
             "available_scores": available_scores,
@@ -807,13 +836,13 @@ async def debug_user_data(user_id: str):
 
 @router.post("/api/save-score")
 async def save_score(data: ScoreSubmission):
-    """Save user score data"""
+    """Save user score data with automatic average calculation"""
     try:
         if not data.userId:
             raise HTTPException(status_code=400, detail="userId is required")
         
         upsert_user_data_optimized(worksheet, data)
-        return {"message": "Data saved to Google Sheets successfully"}
+        return {"message": "Data saved to Google Sheets successfully with calculated averages"}
     except HTTPException:
         raise
     except Exception as e:
