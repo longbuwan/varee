@@ -312,8 +312,8 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
             "program_info": {
                 "id": program.get("ID"),
                 "name": program.get("Program"),
-                "university": program.get("University"),
-                "faculty": program.get("Faculty")
+                "university": program.get("university"),
+                "faculty": program.get("faculty")
             },
             "message": f"Score calculated successfully: {round(score, 2)}"
         }
