@@ -997,6 +997,7 @@ async def get_user_scores(user_id: str):
                 score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+                    
             
             if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
                 selection_result["status"] = "gpax_insufficient"
@@ -1117,7 +1118,11 @@ async def find_new_programs(request: NewProgramRequest):
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                     if score_p is None:
-                        score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+                        score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"))
+                
+                # If score_p is 0, treat it as None/null
+                if score_p == 0:
+                    score_p = None
                 
                 # Check GPAX requirement
                 if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
