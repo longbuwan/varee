@@ -138,12 +138,12 @@ def check_gpax_eligibility(user_gpax: float, program_gpax_req: float) -> Dict[st
             "required_gpax": None
         }
     
-    if user_gpax_safe >= program_gpax_safe:
+    if (user_gpax_safe/25) >= program_gpax_safe:
         return {
             "eligible": True,
             "reason": "meets_requirement",
             "message": f"GPAX requirement met ({user_gpax_safe} >= {program_gpax_safe})",
-            "user_gpax": user_gpax_safe,
+            "user_gpax": user_gpax_safe/25,
             "required_gpax": program_gpax_safe,
             "gpax_buffer": user_gpax_safe - program_gpax_safe
         }
