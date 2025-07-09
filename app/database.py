@@ -114,6 +114,168 @@ def safe_numeric_comparison(val1, val2, operator='<'):
     except:
         return False
 
+# ---- ENHANCED GPAX CHECKING FUNCTIONS ----
+def check_gpax_eligibility(user_gpax: float, program_gpax_req: float) -> Dict[str, Any]:
+    """Enhanced GPAX eligibility checking with detailed feedback"""
+    user_gpax_safe = safe_float_conversion(user_gpax)
+    program_gpax_safe = safe_float_conversion(program_gpax_req)
+    
+    if user_gpax_safe is None:
+        return {
+            "eligible": False,
+            "reason": "missing_user_gpax",
+            "message": "User GPAX not available",
+            "user_gpax": None,
+            "required_gpax": program_gpax_safe
+        }
+    
+    if program_gpax_safe is None:
+        return {
+            "eligible": True,
+            "reason": "no_requirement",
+            "message": "No GPAX requirement for this program",
+            "user_gpax": user_gpax_safe,
+            "required_gpax": None
+        }
+    
+    if user_gpax_safe >= program_gpax_safe:
+        return {
+            "eligible": True,
+            "reason": "meets_requirement",
+            "message": f"GPAX requirement met ({user_gpax_safe} >= {program_gpax_safe})",
+            "user_gpax": user_gpax_safe,
+            "required_gpax": program_gpax_safe,
+            "gpax_buffer": user_gpax_safe - program_gpax_safe
+        }
+    else:
+        return {
+            "eligible": False,
+            "reason": "insufficient_gpax",
+            "message": f"GPAX requirement not met ({user_gpax_safe} < {program_gpax_safe})",
+            "user_gpax": user_gpax_safe,
+            "required_gpax": program_gpax_safe,
+            "gpax_deficit": program_gpax_safe - user_gpax_safe
+        }
+
+def find_alternative_programs_by_gpax(user_data: Dict, target_universities: List[str] = None, max_alternatives: int = 10) -> List[Dict]:
+    """Find alternative programs that match user's GPAX requirements"""
+    load_and_cache_data()
+    
+    if data_cache.university_data_df is None or data_cache.university_data_df.empty:
+        return []
+    
+    user_gpax = safe_float_conversion(user_data.get("gpax"))
+    if user_gpax is None:
+        return []
+    
+    alternative_programs = []
+    university_df = data_cache.university_data_df.copy()
+    
+    # Filter by target universities if specified
+    if target_universities:
+        university_df = university_df[university_df["University"].isin(target_universities)]
+    
+    for _, program in university_df.iterrows():
+        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        
+        # Check if user meets GPAX requirement
+        gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+        
+        if gpax_check["eligible"]:
+            # Calculate score to see if it's a good match
+            score_result = calculate_program_score(user_data, program)
+            
+            if score_result["success"]:
+                # Get projected minimum score
+                score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                    if score_p is None:
+                        score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"))
+                
+                alternative_programs.append({
+                    "university": program.get("University"),
+                    "faculty": program.get("Faculty"),
+                    "field": program.get("Program"),
+                    "gpax_required": gpax_req,
+                    "gpax_buffer": gpax_check.get("gpax_buffer", 0),
+                    "calculated_score": score_result["score"],
+                    "projected_min_score": score_p,
+                    "score_difference": score_result["score"] - score_p if score_p is not None else None,
+                    "is_competitive": score_result["score"] > score_p if score_p is not None else True,
+                    "program_info": {
+                        "id": program.get("ID"),
+                        "name": program.get("Program"),
+                        "university": program.get("University"),
+                        "faculty": program.get("Faculty")
+                    }
+                })
+    
+    # Sort by score difference (highest first) and GPAX buffer
+    alternative_programs.sort(key=lambda x: (
+        x.get("score_difference", 0) if x.get("score_difference") is not None else 0,
+        x.get("gpax_buffer", 0)
+    ), reverse=True)
+    
+    return alternative_programs[:max_alternatives]
+
+def analyze_gpax_issues(user_data: Dict) -> Dict[str, Any]:
+    """Analyze GPAX issues across all user selections and provide recommendations"""
+    gpax_analysis = {
+        "user_gpax": safe_float_conversion(user_data.get("gpax")),
+        "selections_analysis": [],
+        "gpax_issues_count": 0,
+        "eligible_selections": 0,
+        "recommendations": []
+    }
+    
+    # Analyze each selection
+    for i in range(1, 11):
+        university = user_data.get(f"selection_{i}_university")
+        faculty = user_data.get(f"selection_{i}_faculty")
+        field = user_data.get(f"selection_{i}_field")
+        
+        if not (university and faculty and field):
+            continue
+        
+        program = find_program_fast(university, faculty, field)
+        if program is None:
+            continue
+        
+        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        gpax_check = check_gpax_eligibility(gpax_analysis["user_gpax"], gpax_req)
+        
+        selection_analysis = {
+            "selection_number": i,
+            "university": university,
+            "faculty": faculty,
+            "field": field,
+            "gpax_check": gpax_check,
+            "alternatives": []
+        }
+        
+        if gpax_check["eligible"]:
+            gpax_analysis["eligible_selections"] += 1
+        else:
+            gpax_analysis["gpax_issues_count"] += 1
+            # Find alternatives for this specific university
+            alternatives = find_alternative_programs_by_gpax(
+                user_data, 
+                target_universities=[university], 
+                max_alternatives=5
+            )
+            selection_analysis["alternatives"] = alternatives
+        
+        gpax_analysis["selections_analysis"].append(selection_analysis)
+    
+    # Generate overall recommendations
+    if gpax_analysis["gpax_issues_count"] > 0:
+        # Find general alternatives across all universities
+        all_alternatives = find_alternative_programs_by_gpax(user_data, max_alternatives=15)
+        gpax_analysis["recommendations"] = all_alternatives
+    
+    return gpax_analysis
+
 # ---- DATA CACHE CLASS ----
 class DataCache:
     def __init__(self, ttl_seconds=Config.CACHE_TTL_SECONDS):
@@ -525,6 +687,14 @@ class MultipleSelectionsSubmission(BaseModel):
     name: str
     selections: List[UniversitySelection]
 
+class GPAXAnalysisRequest(BaseModel):
+    userId: str
+
+class AlternativeProgramsRequest(BaseModel):
+    userId: str
+    target_universities: Optional[List[str]] = None
+    max_alternatives: Optional[int] = 15
+
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
     """Optimized user data upsert with minimal sheet operations and average calculations"""
@@ -627,7 +797,7 @@ def save_multiple_selections(worksheet, user_id: str, name: str, selections: Lis
     # Invalidate cache
     data_cache.invalidate_cache()
 
-# ---- API ENDPOINTS ----
+# ---- ENHANCED API ENDPOINTS ----
 @router.post("/api/find_faculty")
 async def find_faculty(data: UniversityRequest):
     """Get faculties for a university"""
@@ -648,10 +818,60 @@ async def find_field(data: FacultyRequest):
         print(f"Error finding fields: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find fields: {str(e)}")
 
+@router.post("/api/gpax_analysis")
+async def analyze_gpax(data: GPAXAnalysisRequest):
+    """Analyze GPAX issues and provide recommendations"""
+    try:
+        user_data = get_user_data_fast(data.userId)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        analysis = analyze_gpax_issues(user_data)
+        
+        return {
+            "user_id": data.userId,
+            "analysis": analysis,
+            "message": f"Found {analysis['gpax_issues_count']} GPAX issues out of {len(analysis['selections_analysis'])} selections"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error analyzing GPAX: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze GPAX: {str(e)}")
+
+@router.post("/api/alternative_programs")
+async def get_alternative_programs(data: AlternativeProgramsRequest):
+    """Get alternative programs based on user's GPAX and scores"""
+    try:
+        user_data = get_user_data_fast(data.userId)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        alternatives = find_alternative_programs_by_gpax(
+            user_data, 
+            data.target_universities, 
+            data.max_alternatives or 15
+        )
+        
+        return {
+            "user_id": data.userId,
+            "user_gpax": user_data.get("gpax"),
+            "target_universities": data.target_universities,
+            "alternatives": alternatives,
+            "total_alternatives": len(alternatives),
+            "message": f"Found {len(alternatives)} alternative programs"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error finding alternatives: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to find alternatives: {str(e)}")
 
 @router.post("/api/calculate_scores")
 async def calculate_scores(data: dict):
-    """Calculate scores for all user selections"""
+    """Calculate scores for all user selections with enhanced GPAX checking"""
     user_id = data.get("userId")
     if not user_id:
         raise HTTPException(status_code=400, detail="userId is required")
@@ -662,8 +882,9 @@ async def calculate_scores(data: dict):
             return {"error": "User not found", "user_id": user_id}
         
         results = []
+        gpax_issues = []
         
-        # Check each of the 10 selections with correct column names
+        # Check each of the 10 selections with enhanced GPAX checking
         for i in range(1, 11):
             university = user_data.get(f"selection_{i}_university")
             faculty = user_data.get(f"selection_{i}_faculty")
@@ -677,6 +898,8 @@ async def calculate_scores(data: dict):
                 "status": "incomplete",
                 "score": None,
                 "score_d": None,
+                "gpax_check": None,
+                "alternatives": [],
                 "message": ""
             }
             
@@ -694,22 +917,33 @@ async def calculate_scores(data: dict):
                 results.append(selection_result)
                 continue
             
-            # Check GPAX requirement with safe conversion
+            # Enhanced GPAX checking
             gpax_req = safe_float_conversion(program.get("gpax_req"))
             user_gpax = safe_float_conversion(user_data.get("gpax"))
             
-            # Get projected minimum score with safe conversion
+            gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+            selection_result["gpax_check"] = gpax_check
+            
+            # Get projected minimum score
             score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
             if score_p is None:
                 score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
             
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+            if not gpax_check["eligible"]:
                 selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
+                selection_result["message"] = gpax_check["message"]
+                
+                # Find alternatives for this university
+                alternatives = find_alternative_programs_by_gpax(
+                    user_data, 
+                    target_universities=[university], 
+                    max_alternatives=5
+                )
+                selection_result["alternatives"] = alternatives
+                gpax_issues.append(selection_result)
+                
                 results.append(selection_result)
                 continue
             
@@ -735,23 +969,29 @@ async def calculate_scores(data: dict):
         # Calculate summary
         calculated_scores = [r["score"] for r in results if r["score"] is not None]
         
+        # Find general alternatives if there are GPAX issues
+        general_alternatives = []
+        if gpax_issues:
+            general_alternatives = find_alternative_programs_by_gpax(user_data, max_alternatives=10)
+        
         response_data = {
             "user_id": user_id,
             "user_name": user_data.get("name"),
             "user_gpax": user_data.get("gpax"),
             "results": results,
+            "gpax_issues": gpax_issues,
+            "general_alternatives": general_alternatives,
             "summary": {
                 "total_selections": len([r for r in results if r["university"]]),
                 "calculated_scores": len(calculated_scores),
+                "gpax_issues_count": len(gpax_issues),
                 "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
                 "highest_score": max(calculated_scores) if calculated_scores else 0,
                 "lowest_score": min(calculated_scores) if calculated_scores else 0,
-                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0,
+                "alternatives_available": len(general_alternatives)
             }
         }
-        
-        if "error" in response_data:
-            raise HTTPException(status_code=404, detail=response_data["error"])
         
         return response_data
         
@@ -761,6 +1001,7 @@ async def calculate_scores(data: dict):
         print(f"Error calculating scores: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
 
+# ---- EXISTING API ENDPOINTS (keeping for compatibility) ----
 @router.get("/api/user_data/{user_id}")
 async def get_user_data(user_id: str):
     """Get user data"""
@@ -883,7 +1124,7 @@ async def submit_multiple_selections(data: MultipleSelectionsSubmission):
 
 @router.post("/api/calculate_program_score")
 async def calculate_program_score_endpoint(data: dict):
-    """Calculate score for a specific program"""
+    """Calculate score for a specific program with enhanced GPAX checking"""
     user_id = data.get("userId")
     university = data.get("university")
     faculty = data.get("faculty")
@@ -904,17 +1145,29 @@ async def calculate_program_score_endpoint(data: dict):
         if program is None:
             raise HTTPException(status_code=404, detail="Program not found")
         
-        # Check GPAX requirement with safe conversion
+        # Enhanced GPAX checking
         gpax_req = safe_float_conversion(program.get("gpax_req"))
         user_gpax = safe_float_conversion(user_data.get("gpax"))
         
-        if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+        gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+        
+        if not gpax_check["eligible"]:
+            # Find alternatives
+            alternatives = find_alternative_programs_by_gpax(
+                user_data, 
+                target_universities=[university], 
+                max_alternatives=5
+            )
+            
             return {
                 "status": "gpax_insufficient",
-                "message": f"GPAX too low (need {gpax_req}, have {user_gpax})",
+                "gpax_check": gpax_check,
+                "alternatives": alternatives,
                 "score": None,
-                "gpax_required": gpax_req,
-                "gpax_current": user_gpax
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "message": gpax_check["message"]
             }
         
         # Calculate score
@@ -926,6 +1179,7 @@ async def calculate_program_score_endpoint(data: dict):
                 "score": score_result["score"],
                 "program_info": score_result["program_info"],
                 "score_breakdown": score_result["score_breakdown"],
+                "gpax_check": gpax_check,
                 "university": university,
                 "faculty": faculty,
                 "field": field,
@@ -935,6 +1189,7 @@ async def calculate_program_score_endpoint(data: dict):
             return {
                 "status": "error",
                 "score": None,
+                "gpax_check": gpax_check,
                 "message": score_result["message"],
                 "missing_scores": score_result.get("missing_scores", [])
             }
@@ -947,16 +1202,17 @@ async def calculate_program_score_endpoint(data: dict):
 
 @router.get("/api/user_scores/{user_id}")
 async def get_user_scores(user_id: str):
-    """Get calculated scores for a user"""
+    """Get calculated scores for a user with enhanced GPAX checking"""
     try:
-        # Use the same logic as calculate_scores endpoint
+        # Use the same logic as enhanced calculate_scores endpoint
         user_data = get_user_data_fast(user_id)
         if not user_data:
             raise HTTPException(status_code=404, detail="User not found")
         
         results = []
+        gpax_issues = []
         
-        # Check each of the 10 selections with correct column names
+        # Check each of the 10 selections with enhanced GPAX checking
         for i in range(1, 11):
             university = user_data.get(f"selection_{i}_university")
             faculty = user_data.get(f"selection_{i}_faculty")
@@ -970,6 +1226,8 @@ async def get_user_scores(user_id: str):
                 "status": "incomplete",
                 "score": None,
                 "score_d": None,
+                "gpax_check": None,
+                "alternatives": [],
                 "message": ""
             }
             
@@ -987,23 +1245,33 @@ async def get_user_scores(user_id: str):
                 results.append(selection_result)
                 continue
             
-            # Check GPAX requirement with safe conversion
+            # Enhanced GPAX checking
             gpax_req = safe_float_conversion(program.get("gpax_req"))
             user_gpax = safe_float_conversion(user_data.get("gpax"))
             
-            # Get projected minimum score with safe conversion
+            gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+            selection_result["gpax_check"] = gpax_check
+            
+            # Get projected minimum score
             score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
             if score_p is None:
                 score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
-                    
             
-            if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+            if not gpax_check["eligible"]:
                 selection_result["status"] = "gpax_insufficient"
-                selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                selection_result["gpax_required"] = gpax_req
-                selection_result["gpax_current"] = user_gpax
+                selection_result["message"] = gpax_check["message"]
+                
+                # Find alternatives for this university
+                alternatives = find_alternative_programs_by_gpax(
+                    user_data, 
+                    target_universities=[university], 
+                    max_alternatives=5
+                )
+                selection_result["alternatives"] = alternatives
+                gpax_issues.append(selection_result)
+                
                 results.append(selection_result)
                 continue
             
@@ -1029,18 +1297,27 @@ async def get_user_scores(user_id: str):
         # Calculate summary
         calculated_scores = [r["score"] for r in results if r["score"] is not None]
         
+        # Find general alternatives if there are GPAX issues
+        general_alternatives = []
+        if gpax_issues:
+            general_alternatives = find_alternative_programs_by_gpax(user_data, max_alternatives=10)
+        
         response_data = {
             "user_id": user_id,
             "user_name": user_data.get("name"),
             "user_gpax": user_data.get("gpax"),
             "results": results,
+            "gpax_issues": gpax_issues,
+            "general_alternatives": general_alternatives,
             "summary": {
                 "total_selections": len([r for r in results if r["university"]]),
                 "calculated_scores": len(calculated_scores),
+                "gpax_issues_count": len(gpax_issues),
                 "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
                 "highest_score": max(calculated_scores) if calculated_scores else 0,
                 "lowest_score": min(calculated_scores) if calculated_scores else 0,
-                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0,
+                "alternatives_available": len(general_alternatives)
             }
         }
         
@@ -1051,13 +1328,14 @@ async def get_user_scores(user_id: str):
     except Exception as e:
         print(f"Error getting user scores: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get scores: {str(e)}")
+
 class NewProgramRequest(BaseModel):
     userId: str
     university: str
 
 @router.post("/api/new_program")
 async def find_new_programs(request: NewProgramRequest):
-    """Find alternative programs in a university with good scores"""
+    """Find alternative programs in a university with good scores and enhanced GPAX checking"""
     user_id = request.userId
     target_university = request.university
     
@@ -1087,6 +1365,7 @@ async def find_new_programs(request: NewProgramRequest):
             raise HTTPException(status_code=404, detail=f"No programs found for university: {target_university}")
         
         results = []
+        gpax_issues = []
         
         # Calculate scores for each program in the university
         for _, program in university_programs.iterrows():
@@ -1106,14 +1385,18 @@ async def find_new_programs(request: NewProgramRequest):
                     "score": None,
                     "score_d": None,
                     "should": "false",
+                    "gpax_check": None,
                     "message": ""
                 }
                 
-                # Check GPAX requirement with safe conversion
+                # Enhanced GPAX checking
                 gpax_req = safe_float_conversion(program.get("gpax_req"))
                 user_gpax = safe_float_conversion(user_data.get("gpax"))
                 
-                # Get projected minimum score with safe conversion
+                gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+                selection_result["gpax_check"] = gpax_check
+                
+                # Get projected minimum score
                 score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
@@ -1125,11 +1408,10 @@ async def find_new_programs(request: NewProgramRequest):
                     score_p = None
                 
                 # Check GPAX requirement
-                if gpax_req is not None and user_gpax is not None and user_gpax < gpax_req:
+                if not gpax_check["eligible"]:
                     selection_result["status"] = "gpax_insufficient"
-                    selection_result["message"] = f"GPAX requirement not met (required: {gpax_req}, current: {user_gpax})"
-                    selection_result["gpax_required"] = gpax_req
-                    selection_result["gpax_current"] = user_gpax
+                    selection_result["message"] = gpax_check["message"]
+                    gpax_issues.append(selection_result)
                     results.append(selection_result)
                     continue
                 
@@ -1177,10 +1459,12 @@ async def find_new_programs(request: NewProgramRequest):
             "target_university": target_university,
             "results": results,
             "recommended_programs": recommended_programs,
+            "gpax_issues": gpax_issues,
             "summary": {
                 "total_programs": len(results),
                 "calculated_programs": len([r for r in results if r["status"] == "calculated"]),
                 "recommended_programs": len(recommended_programs),
+                "gpax_issues_count": len(gpax_issues),
                 "highest_score": max(calculated_scores) if calculated_scores else 0,
                 "lowest_score": min(calculated_scores) if calculated_scores else 0,
                 "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
@@ -1194,6 +1478,7 @@ async def find_new_programs(request: NewProgramRequest):
     except Exception as e:
         print(f"Error finding new programs: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
+
 # Include router
 app.include_router(router)
 
