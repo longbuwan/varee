@@ -72,7 +72,7 @@ SCORE_COLUMNS = [
 # Numeric columns for university data that need conversion
 UNIVERSITY_NUMERIC_COLUMNS = [
     "gpax_req", "projected_min_score_68_from_67", "คะแนนต่ำสุด_67", 
-    "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", "cal_score_sum", "t_score"
+    "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", "cal_score_sum"  # Removed "t_score"
 ] + SCORE_COLUMNS
 
 # T-Score subject classification
@@ -469,7 +469,12 @@ def is_t_score_enabled(program):
     if t_score_value is None or pd.isna(t_score_value):
         return False
     
-            # Convert to string and check
+    # Handle both numeric and string values
+    if isinstance(t_score_value, (int, float)):
+        # If it's numeric, treat 1 as True, 0 as False
+        return bool(t_score_value) and t_score_value != 0
+    
+    # Convert to string and check
     t_score_str = str(t_score_value).lower().strip()
     return t_score_str in ["true", "1", "yes", "on"]
 def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, Any]:
