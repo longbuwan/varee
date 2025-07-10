@@ -1206,7 +1206,7 @@ async def calculate_scores(data: dict):
             # Calculate score
             if is_t_score_enabled(program):
                  score_result = calculate_score_with_t_score(data.user_score, data.subject, data_cache.statistics_data_df)
-            else
+            else:
                  score_result = calculate_program_score(user_data, program)
            
             
