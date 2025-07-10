@@ -307,7 +307,7 @@ data_cache = DataCache()
 
 # ---- GOOGLE SHEETS SETUP ----
 def setup_google_sheets():
-   def setup_google_sheets():
+  
     """Initialize Google Sheets connection using google-auth instead of oauth2client"""
     try:
         creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
