@@ -2,7 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import gspread.utils
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import json
 import os
 import pandas as pd
@@ -307,14 +307,21 @@ data_cache = DataCache()
 
 # ---- GOOGLE SHEETS SETUP ----
 def setup_google_sheets():
-    """Initialize Google Sheets connection"""
+   def setup_google_sheets():
+    """Initialize Google Sheets connection using google-auth instead of oauth2client"""
     try:
         creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
         if not creds_json_str:
             raise ValueError("GOOGLE_CREDS_JSON environment variable not set")
             
         creds_json = json.loads(creds_json_str)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, Config.SCOPE)
+        
+        # Updated to use google-auth
+        creds = Credentials.from_service_account_info(
+            creds_json, 
+            scopes=Config.SCOPE
+        )
+        
         client = gspread.authorize(creds)
         
         sheet = client.open_by_key(Config.SHEET_ID)
@@ -325,9 +332,6 @@ def setup_google_sheets():
     except Exception as e:
         print(f"Error setting up Google Sheets: {e}")
         raise
-
-worksheet, datasheet = setup_google_sheets()
-
 # ---- SCORE CALCULATION FUNCTIONS ----
 def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[str, Any]:
     """Validate that user has required scores for calculation"""
