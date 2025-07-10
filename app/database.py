@@ -846,6 +846,10 @@ class TScoreTestRequest(BaseModel):
     subject: str
     user_score: float
 
+class NewProgramRequest(BaseModel):
+    userId: str
+    university: str
+
 # ---- DATA SAVING FUNCTIONS ----
 def upsert_user_data_optimized(worksheet, data):
     """Optimized user data upsert with minimal sheet operations and average calculations"""
@@ -1113,8 +1117,639 @@ async def get_alternative_programs(data: AlternativeProgramsRequest):
         print(f"Error finding alternatives: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find alternatives: {str(e)}")
 
-# ---- Continue with the rest of the existing endpoints... ----
-# [The rest of the endpoints remain the same as in the original code]
+@router.post("/api/calculate_scores")
+async def calculate_scores(data: dict):
+    """Calculate scores for all user selections with enhanced GPAX checking and T-score support"""
+    user_id = data.get("userId")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="userId is required")
+    
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            return {"error": "User not found", "user_id": user_id}
+        
+        results = []
+        gpax_issues = []
+        
+        # Check each of the 10 selections with enhanced GPAX checking
+        for i in range(1, 11):
+            university = user_data.get(f"selection_{i}_university")
+            faculty = user_data.get(f"selection_{i}_faculty")
+            field = user_data.get(f"selection_{i}_field")
+            
+            selection_result = {
+                "selection_number": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "incomplete",
+                "score": None,
+                "score_d": None,
+                "gpax_check": None,
+                "t_score_enabled": False,
+                "alternatives": [],
+                "message": ""
+            }
+            
+            if not (university and faculty and field):
+                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
+                results.append(selection_result)
+                continue
+            
+            # Find program
+            program = find_program_fast(university, faculty, field)
+            
+            if program is None:
+                selection_result["status"] = "not_found"
+                selection_result["message"] = "Program not found in database"
+                results.append(selection_result)
+                continue
+            
+            # Check if T-score is enabled for this program
+            selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+            
+            # Enhanced GPAX checking
+            gpax_req = safe_float_conversion(program.get("gpax_req"))
+            user_gpax = safe_float_conversion(user_data.get("gpax"))
+            
+            gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+            selection_result["gpax_check"] = gpax_check
+            
+            # Get projected minimum score
+            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            if score_p is None:
+                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+            
+            if not gpax_check["eligible"]:
+                selection_result["status"] = "gpax_insufficient"
+                selection_result["message"] = gpax_check["message"]
+                
+                # Find alternatives for this university
+                alternatives = find_alternative_programs_by_gpax(
+                    user_data, 
+                    target_universities=[university], 
+                    max_alternatives=5
+                )
+                selection_result["alternatives"] = alternatives
+                gpax_issues.append(selection_result)
+                
+                results.append(selection_result)
+                continue
+            
+            # Calculate score
+            score_result = calculate_program_score(user_data, program)
+            
+            if score_result["success"]:
+                selection_result["status"] = "calculated"
+                selection_result["score"] = score_result["score"]
+                selection_result["message"] = score_result["message"]
+                selection_result["score_breakdown"] = score_result["score_breakdown"]
+                selection_result["t_score_enabled"] = score_result["t_score_enabled"]
+                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
+            else:
+                selection_result["status"] = "error"
+                selection_result["message"] = score_result["message"]
+                if score_result["error"] == "missing_scores":
+                    selection_result["missing_scores"] = score_result["missing_scores"]
+                    selection_result["missing_count"] = score_result["missing_count"]
+                    selection_result["total_required"] = score_result["total_required"]
+
+            results.append(selection_result)
+        
+        # Calculate summary
+        calculated_scores = [r["score"] for r in results if r["score"] is not None]
+        t_score_programs = [r for r in results if r.get("t_score_enabled", False)]
+        
+        # Find general alternatives if there are GPAX issues
+        general_alternatives = []
+        if gpax_issues:
+            general_alternatives = find_alternative_programs_by_gpax(user_data, max_alternatives=10)
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_data.get("name"),
+            "user_gpax": user_data.get("gpax"),
+            "results": results,
+            "gpax_issues": gpax_issues,
+            "general_alternatives": general_alternatives,
+            "summary": {
+                "total_selections": len([r for r in results if r["university"]]),
+                "calculated_scores": len(calculated_scores),
+                "t_score_programs": len(t_score_programs),
+                "gpax_issues_count": len(gpax_issues),
+                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
+                "highest_score": max(calculated_scores) if calculated_scores else 0,
+                "lowest_score": min(calculated_scores) if calculated_scores else 0,
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0,
+                "alternatives_available": len(general_alternatives)
+            }
+        }
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error calculating scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate scores: {str(e)}")
+
+# ---- EXISTING API ENDPOINTS (keeping for compatibility) ----
+@router.get("/api/user_data/{user_id}")
+async def get_user_data(user_id: str):
+    """Get user data"""
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"user_data": user_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting user data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get user data: {str(e)}")
+
+@router.get("/api/debug/user/{user_id}")
+async def debug_user_data(user_id: str):
+    """Debug endpoint to check user data"""
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            return {"error": "User not found", "user_id": user_id}
+        
+        # Check selections
+        selections = []
+        for i in range(1, 11):
+            university = user_data.get(f"selection_{i}_university")
+            faculty = user_data.get(f"selection_{i}_faculty")
+            field = user_data.get(f"selection_{i}_field")
+            
+            if university or faculty or field:
+                selections.append({
+                    "selection": i,
+                    "university": university,
+                    "faculty": faculty,
+                    "field": field,
+                    "complete": bool(university and faculty and field)
+                })
+        
+        # Check available scores
+        available_scores = {}
+        missing_scores = []
+        for col in NUMERIC_COLUMNS:
+            value = user_data.get(col)
+            if value is not None and not pd.isna(value):
+                available_scores[col] = value
+            else:
+                missing_scores.append(col)
+        
+        return {
+            "user_id": user_id,
+            "user_name": user_data.get("name"),
+            "user_gpax": user_data.get("gpax"),
+            "calculated_averages": {
+                "tgat": user_data.get("tgat"),
+                "tpat1": user_data.get("tpat1"),
+                "tpat2": user_data.get("tpat2")
+            },
+            "selections": selections,
+            "total_selections": len(selections),
+            "available_scores": available_scores,
+            "missing_scores": missing_scores,
+            "score_completeness": f"{len(available_scores)}/{len(NUMERIC_COLUMNS)}",
+            "cache_status": {
+                "cache_valid": data_cache.is_cache_valid(),
+                "last_update": data_cache.last_update.isoformat() if data_cache.last_update else None,
+                "user_data_loaded": data_cache.user_data_df is not None,
+                "university_data_loaded": data_cache.university_data_df is not None,
+                "statistics_data_loaded": data_cache.statistics_data_df is not None and not data_cache.statistics_data_df.empty
+            }
+        }
+    except Exception as e:
+        return {"error": str(e), "user_id": user_id}
+
+@router.post("/api/save-score")
+async def save_score(data: ScoreSubmission):
+    """Save user score data with automatic average calculation"""
+    try:
+        if not data.userId:
+            raise HTTPException(status_code=400, detail="userId is required")
+        
+        upsert_user_data_optimized(worksheet, data)
+        return {"message": "Data saved to Google Sheets successfully with calculated averages"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error saving data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save data: {str(e)}")
+
+@router.post("/api/submit_multiple_selections")
+async def submit_multiple_selections(data: MultipleSelectionsSubmission):
+    """Save multiple university selections"""
+    try:
+        if not data.userId:
+            raise HTTPException(status_code=400, detail="userId is required")
+        
+        if not data.name:
+            raise HTTPException(status_code=400, detail="name is required")
+        
+        if not data.selections:
+            raise HTTPException(status_code=400, detail="selections are required")
+        
+        # Convert selections to dict format
+        selections_dict = []
+        for selection in data.selections:
+            selections_dict.append({
+                "university": selection.university,
+                "faculty": selection.faculty,
+                "field": selection.field
+            })
+        
+        save_multiple_selections(worksheet, data.userId, data.name, selections_dict)
+        
+        return {"message": f"Successfully saved {len(data.selections)} university selections"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error saving multiple selections: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save selections: {str(e)}")
+
+@router.post("/api/calculate_program_score")
+async def calculate_program_score_endpoint(data: dict):
+    """Calculate score for a specific program with enhanced GPAX checking and T-score support"""
+    user_id = data.get("userId")
+    university = data.get("university")
+    faculty = data.get("faculty")
+    field = data.get("field")
+    
+    if not all([user_id, university, faculty, field]):
+        raise HTTPException(
+            status_code=400, 
+            detail="userId, university, faculty, and field are required"
+        )
+    
+    try:
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        program = find_program_fast(university, faculty, field)
+        if program is None:
+            raise HTTPException(status_code=404, detail="Program not found")
+        
+        # Check if T-score is enabled for this program
+        t_score_enabled = safe_float_conversion(program.get("t_score"), 0) == 1
+        
+        # Enhanced GPAX checking
+        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        user_gpax = safe_float_conversion(user_data.get("gpax"))
+        
+        gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+        
+        if not gpax_check["eligible"]:
+            # Find alternatives
+            alternatives = find_alternative_programs_by_gpax(
+                user_data, 
+                target_universities=[university], 
+                max_alternatives=5
+            )
+            
+            return {
+                "status": "gpax_insufficient",
+                "gpax_check": gpax_check,
+                "alternatives": alternatives,
+                "score": None,
+                "t_score_enabled": t_score_enabled,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "message": gpax_check["message"]
+            }
+        
+        # Calculate score
+        score_result = calculate_program_score(user_data, program)
+        
+        if score_result["success"]:
+            return {
+                "status": "success",
+                "score": score_result["score"],
+                "program_info": score_result["program_info"],
+                "score_breakdown": score_result["score_breakdown"],
+                "t_score_enabled": score_result["t_score_enabled"],
+                "gpax_check": gpax_check,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "message": score_result["message"]
+            }
+        else:
+            return {
+                "status": "error",
+                "score": None,
+                "gpax_check": gpax_check,
+                "t_score_enabled": t_score_enabled,
+                "message": score_result["message"],
+                "missing_scores": score_result.get("missing_scores", [])
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error calculating program score: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to calculate score: {str(e)}")
+
+@router.get("/api/user_scores/{user_id}")
+async def get_user_scores(user_id: str):
+    """Get calculated scores for a user with enhanced GPAX checking and T-score support"""
+    try:
+        # Use the same logic as enhanced calculate_scores endpoint
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        results = []
+        gpax_issues = []
+        
+        # Check each of the 10 selections with enhanced GPAX checking
+        for i in range(1, 11):
+            university = user_data.get(f"selection_{i}_university")
+            faculty = user_data.get(f"selection_{i}_faculty")
+            field = user_data.get(f"selection_{i}_field")
+            
+            selection_result = {
+                "selection_number": i,
+                "university": university,
+                "faculty": faculty,
+                "field": field,
+                "status": "incomplete",
+                "score": None,
+                "score_d": None,
+                "gpax_check": None,
+                "t_score_enabled": False,
+                "alternatives": [],
+                "message": ""
+            }
+            
+            if not (university and faculty and field):
+                selection_result["message"] = "Selection incomplete - missing university, faculty, or field"
+                results.append(selection_result)
+                continue
+            
+            # Find program
+            program = find_program_fast(university, faculty, field)
+            
+            if program is None:
+                selection_result["status"] = "not_found"
+                selection_result["message"] = "Program not found in database"
+                results.append(selection_result)
+                continue
+            
+            # Check if T-score is enabled for this program
+            selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+            
+            # Enhanced GPAX checking
+            gpax_req = safe_float_conversion(program.get("gpax_req"))
+            user_gpax = safe_float_conversion(user_data.get("gpax"))
+            
+            gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+            selection_result["gpax_check"] = gpax_check
+            
+            # Get projected minimum score
+            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            if score_p is None:
+                score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
+            
+            if not gpax_check["eligible"]:
+                selection_result["status"] = "gpax_insufficient"
+                selection_result["message"] = gpax_check["message"]
+                
+                # Find alternatives for this university
+                alternatives = find_alternative_programs_by_gpax(
+                    user_data, 
+                    target_universities=[university], 
+                    max_alternatives=5
+                )
+                selection_result["alternatives"] = alternatives
+                gpax_issues.append(selection_result)
+                
+                results.append(selection_result)
+                continue
+            
+            # Calculate score
+            score_result = calculate_program_score(user_data, program)
+            
+            if score_result["success"]:
+                selection_result["status"] = "calculated"
+                selection_result["score"] = score_result["score"]
+                selection_result["message"] = score_result["message"]
+                selection_result["score_breakdown"] = score_result["score_breakdown"]
+                selection_result["t_score_enabled"] = score_result["t_score_enabled"]
+                selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
+            else:
+                selection_result["status"] = "error"
+                selection_result["message"] = score_result["message"]
+                if score_result["error"] == "missing_scores":
+                    selection_result["missing_scores"] = score_result["missing_scores"]
+                    selection_result["missing_count"] = score_result["missing_count"]
+                    selection_result["total_required"] = score_result["total_required"]
+
+            results.append(selection_result)
+        
+        # Calculate summary
+        calculated_scores = [r["score"] for r in results if r["score"] is not None]
+        t_score_programs = [r for r in results if r.get("t_score_enabled", False)]
+        
+        # Find general alternatives if there are GPAX issues
+        general_alternatives = []
+        if gpax_issues:
+            general_alternatives = find_alternative_programs_by_gpax(user_data, max_alternatives=10)
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_data.get("name"),
+            "user_gpax": user_data.get("gpax"),
+            "results": results,
+            "gpax_issues": gpax_issues,
+            "general_alternatives": general_alternatives,
+            "summary": {
+                "total_selections": len([r for r in results if r["university"]]),
+                "calculated_scores": len(calculated_scores),
+                "t_score_programs": len(t_score_programs),
+                "gpax_issues_count": len(gpax_issues),
+                "missing_scores": len([r for r in results if r["status"] == "error" and "missing_scores" in r]),
+                "highest_score": max(calculated_scores) if calculated_scores else 0,
+                "lowest_score": min(calculated_scores) if calculated_scores else 0,
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0,
+                "alternatives_available": len(general_alternatives)
+            }
+        }
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting user scores: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get scores: {str(e)}")
+
+@router.post("/api/new_program")
+async def find_new_programs(request: NewProgramRequest):
+    """Find alternative programs in a university with good scores and enhanced GPAX checking"""
+    user_id = request.userId
+    target_university = request.university
+    
+    if not user_id:
+        raise HTTPException(status_code=400, detail="userId is required")
+    if not target_university:
+        raise HTTPException(status_code=400, detail="university is required")
+    
+    try:
+        # Get user data
+        user_data = get_user_data_fast(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Get all programs for the target university
+        load_and_cache_data()
+        
+        if data_cache.university_data_df is None or data_cache.university_data_df.empty:
+            raise HTTPException(status_code=404, detail="University data not available")
+        
+        # Filter programs by university
+        university_programs = data_cache.university_data_df[
+            data_cache.university_data_df["university"] == target_university
+        ]
+        
+        if university_programs.empty:
+            raise HTTPException(status_code=404, detail=f"No programs found for university: {target_university}")
+        
+        results = []
+        gpax_issues = []
+        
+        # Calculate scores for each program in the university
+        for _, program in university_programs.iterrows():
+            try:
+                university = program.get("university", "")
+                faculty = program.get("faculty", "")
+                program_name = program.get("program", "")
+                
+                if not all([university, faculty, program_name]):
+                    continue
+                
+                selection_result = {
+                    "university": university,
+                    "faculty": faculty,
+                    "field": program_name,
+                    "status": "incomplete",
+                    "score": None,
+                    "score_d": None,
+                    "should": "false",
+                    "gpax_check": None,
+                    "t_score_enabled": False,
+                    "message": ""
+                }
+                
+                # Check if T-score is enabled for this program
+                selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+                
+                # Enhanced GPAX checking
+                gpax_req = safe_float_conversion(program.get("gpax_req"))
+                user_gpax = safe_float_conversion(user_data.get("gpax"))
+                
+                gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
+                selection_result["gpax_check"] = gpax_check
+                
+                # Get projected minimum score
+                score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+                if score_p is None:
+                    score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
+                    if score_p is None:
+                        score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"))
+                
+                # If score_p is 0, treat it as None/null
+                if score_p == 0:
+                    score_p = None
+                
+                # Check GPAX requirement
+                if not gpax_check["eligible"]:
+                    selection_result["status"] = "gpax_insufficient"
+                    selection_result["message"] = gpax_check["message"]
+                    gpax_issues.append(selection_result)
+                    results.append(selection_result)
+                    continue
+                
+                # Calculate score
+                score_result = calculate_program_score(user_data, program)
+                
+                if score_result["success"]:
+                    selection_result["status"] = "calculated"
+                    selection_result["score"] = score_result["score"]
+                    selection_result["message"] = score_result["message"]
+                    selection_result["score_breakdown"] = score_result["score_breakdown"]
+                    selection_result["t_score_enabled"] = score_result["t_score_enabled"]
+                    selection_result["score_d"] = score_result["score"] - score_p if score_p is not None else None
+                    
+                    # Determine if this program should be recommended
+                    if selection_result["score_d"] is not None and selection_result["score_d"] > 0:
+                        selection_result["should"] = "true"
+                    else:
+                        selection_result["should"] = "false"
+                        
+                else:
+                    selection_result["status"] = "error"
+                    selection_result["message"] = score_result["message"]
+                    if score_result["error"] == "missing_scores":
+                        selection_result["missing_scores"] = score_result["missing_scores"]
+                        selection_result["missing_count"] = score_result["missing_count"]
+                        selection_result["total_required"] = score_result["total_required"]
+                
+                results.append(selection_result)
+                
+            except Exception as program_error:
+                print(f"Error processing program {program.get('program', 'Unknown')}: {program_error}")
+                continue
+        
+        # Filter and sort results
+        calculated_scores = [r["score"] for r in results if r["score"] is not None]
+        recommended_programs = [r for r in results if r["should"] == "true"]
+        t_score_programs = [r for r in results if r.get("t_score_enabled", False)]
+        
+        # Sort recommended programs by score_d (highest first)
+        recommended_programs.sort(key=lambda x: x.get("score_d", 0), reverse=True)
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_data.get("name"),
+            "user_gpax": user_data.get("gpax"),
+            "target_university": target_university,
+            "results": results,
+            "recommended_programs": recommended_programs,
+            "gpax_issues": gpax_issues,
+            "summary": {
+                "total_programs": len(results),
+                "calculated_programs": len([r for r in results if r["status"] == "calculated"]),
+                "recommended_programs": len(recommended_programs),
+                "t_score_programs": len(t_score_programs),
+                "gpax_issues_count": len(gpax_issues),
+                "highest_score": max(calculated_scores) if calculated_scores else 0,
+                "lowest_score": min(calculated_scores) if calculated_scores else 0,
+                "average_score": sum(calculated_scores) / len(calculated_scores) if calculated_scores else 0
+            }
+        }
+        
+        return response_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error finding new programs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
 
 # Include router
 app.include_router(router)
