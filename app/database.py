@@ -484,7 +484,7 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
             }
         
         # Check if t-score conversion is enabled for this program
-        use_t_score = safe_float_conversion(program.get("t_score"), 0) == 1
+        use_t_score = str(program.get("t_score", "")).lower() == "true"
         
         score = 0
         score_breakdown = []
