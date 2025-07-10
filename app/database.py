@@ -332,6 +332,8 @@ def setup_google_sheets():
     except Exception as e:
         print(f"Error setting up Google Sheets: {e}")
         raise
+        
+worksheet, datasheet = setup_google_sheets()
 # ---- SCORE CALCULATION FUNCTIONS ----
 def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[str, Any]:
     """Validate that user has required scores for calculation"""
