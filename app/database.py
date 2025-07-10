@@ -463,7 +463,7 @@ def get_required_score_columns(program: pd.Series) -> List[str]:
     
     return list(set(required_columns))  # Remove duplicates
 def is_t_score_enabled(program):
-    t_score_str =  str(row.get("t_score")).strip().lower() == "true"
+    t_score_str =  str(program.get("t_score")).strip().lower() == "true"
     return t_score_str 
 
 def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, Any]:
