@@ -482,9 +482,19 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
                 "total_required": validation["total_required"],
                 "message": f"Missing {validation['missing_count']} required scores: {', '.join(validation['missing_scores'])}"
             }
-        
+        def is_t_score_enabled(program):
+            """Check if T-score is enabled for a program"""
+            t_score_value = program.get("t_score")
+    
+            if t_score_value is None or pd.isna(t_score_value):
+                return False
+    
+            # Convert to string and check
+            t_score_str = str(t_score_value).lower().strip()
+            return t_score_str in ["true", "1", "yes", "on"]
+
         # Check if t-score conversion is enabled for this program
-        use_t_score = safe_float_conversion(program.get("t_score"), 0) == 1
+        use_t_score = is_t_score_enabled(program)
         
         score = 0
         score_breakdown = []
@@ -1167,7 +1177,7 @@ async def calculate_scores(data: dict):
                 continue
             
             # Check if T-score is enabled for this program
-            selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+            selection_result["t_score_enabled"] = is_t_score_enabled(program)
             
             # Enhanced GPAX checking
             gpax_req = safe_float_conversion(program.get("gpax_req"))
@@ -1402,7 +1412,8 @@ async def calculate_program_score_endpoint(data: dict):
             raise HTTPException(status_code=404, detail="Program not found")
         
         # Check if T-score is enabled for this program
-        t_score_enabled = safe_float_conversion(program.get("t_score"), 0) == 1
+        t_score_enabled  = is_t_score_enabled(program)
+
         
         # Enhanced GPAX checking
         gpax_req = safe_float_conversion(program.get("gpax_req"))
@@ -1509,7 +1520,8 @@ async def get_user_scores(user_id: str):
                 continue
             
             # Check if T-score is enabled for this program
-            selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+            selection_result["t_score_enabled"]  = is_t_score_enabled(program)
+
             
             # Enhanced GPAX checking
             gpax_req = safe_float_conversion(program.get("gpax_req"))
