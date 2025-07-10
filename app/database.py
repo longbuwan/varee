@@ -462,7 +462,16 @@ def get_required_score_columns(program: pd.Series) -> List[str]:
                 required_columns.append(col)
     
     return list(set(required_columns))  # Remove duplicates
-
+ def is_t_score_enabled(program):
+            """Check if T-score is enabled for a program"""
+            t_score_value = program.get("t_score")
+    
+            if t_score_value is None or pd.isna(t_score_value):
+                return False
+    
+            # Convert to string and check
+            t_score_str = str(t_score_value).lower().strip()
+            return t_score_str in ["true", "1", "yes", "on"]
 def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, Any]:
     """Calculate score for a program with T-score conversion when enabled"""
     try:
@@ -482,16 +491,7 @@ def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, An
                 "total_required": validation["total_required"],
                 "message": f"Missing {validation['missing_count']} required scores: {', '.join(validation['missing_scores'])}"
             }
-        def is_t_score_enabled(program):
-            """Check if T-score is enabled for a program"""
-            t_score_value = program.get("t_score")
-    
-            if t_score_value is None or pd.isna(t_score_value):
-                return False
-    
-            # Convert to string and check
-            t_score_str = str(t_score_value).lower().strip()
-            return t_score_str in ["true", "1", "yes", "on"]
+       
 
         # Check if t-score conversion is enabled for this program
         use_t_score = is_t_score_enabled(program)
