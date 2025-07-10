@@ -1668,7 +1668,8 @@ async def find_new_programs(request: NewProgramRequest):
                 }
                 
                 # Check if T-score is enabled for this program
-                selection_result["t_score_enabled"] = safe_float_conversion(program.get("t_score"), 0) == 1
+                selection_result["t_score_enabled"]  = is_t_score_enabled(program)
+
                 
                 # Enhanced GPAX checking
                 gpax_req = safe_float_conversion(program.get("gpax_req"))
