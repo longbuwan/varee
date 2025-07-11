@@ -1,6 +1,10 @@
 import os
 
+from dotenv import load_dotenv
 
+
+# Load .env from specific path
+load_dotenv(dotenv_path="/home/vrthefuture/VRTheFuture/varee-main/.env")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
