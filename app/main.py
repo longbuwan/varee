@@ -1,13 +1,6 @@
 import os
-from flask import Flask
-import ssl
 
-app = Flask(__name__)
 
-context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-context.load_cert_chain('ssl/server.pem', 'ssl/server-key.pem')
-
-app.run(host='0.0.0.0', port=8000, ssl_context=context)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
