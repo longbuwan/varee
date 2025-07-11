@@ -1762,7 +1762,13 @@ async def find_new_programs(request: NewProgramRequest):
 
 # Include router
 app.include_router(router)
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        ssl_keyfile="ssl/server-key.pem",      # Path to private key
+        ssl_certfile="ssl/server.pem"     # Path to certificate
+    )
+
