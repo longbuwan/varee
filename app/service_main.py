@@ -100,6 +100,9 @@ async def multimodal_demo(request: Request):
     except InvalidSignatureError:
         print("Invalid signature. Please check your channel access token or channel secret.")
     return "OK"
+@router.get("/")
+async def health_check():
+    return {"status": "ok", "message": "LINE bot service is running."}
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
