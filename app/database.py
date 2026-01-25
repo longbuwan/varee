@@ -1759,7 +1759,104 @@ async def find_new_programs(request: NewProgramRequest):
     except Exception as e:
         print(f"Error finding new programs: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
+        
+#For pre-exam
+class ProgramQuery(BaseModel):
+    university: str
+    faculty: str
+    field: str
 
+@router.post("/api/get_program_weights")
+def get_program_weights(query: ProgramQuery):
+    # 1. Load Data
+    load_and_cache_data()
+    df = data_cache.university_data_df
+    
+    if df is None or df.empty:
+        return {"found": False, "message": "Database is empty"}
+
+    # 2. Find Program
+    program_name = query.field.split(':')[0] if ':' in query.field else query.field
+    mask = (
+        (df['university'] == query.university) & 
+        (df['faculty'] == query.faculty) & 
+        (df['program'] == program_name)
+    )
+    program_rows = df[mask]
+    
+    if program_rows.empty:
+        return {"found": False, "message": "Program not found"}
+        
+    row = program_rows.iloc[0]
+    subjects = []
+    
+    # 3. Check T-Score Status
+    t_score_enabled = str(row.get("t_score", "")).strip().lower() == "true"
+
+    # 4. Extract GPAX
+    gpax_req = safe_float_conversion(row.get('gpax_req'))
+    if gpax_req and gpax_req > 0:
+        subjects.append({
+            "subject": "gpax", 
+            "weight": 0, 
+            "min": gpax_req,
+            "stats": None
+        })
+
+    # 5. Extract Subjects & Stats
+    stats_df = data_cache.statistics_data_df
+    
+    for col in SCORE_COLUMNS:
+        if col in ["cal_subject_name", "cal_type", "cal_score_sum"]:
+            continue
+            
+        weight = safe_float_conversion(row.get(col))
+        
+        if weight is not None and weight > 0:
+            stats = None
+            if stats_df is not None and not stats_df.empty:
+                stat_row = stats_df[stats_df['subject'] == col]
+                if not stat_row.empty:
+                    stats = {
+                        "mean": safe_float_conversion(stat_row.iloc[0].get('m_68')),
+                        "sd": safe_float_conversion(stat_row.iloc[0].get('sd_68')),
+                        "multiplier": 9.86 if "tpat" in col or "tgat" in col else 6.11
+                    }
+
+            subjects.append({
+                "subject": str(col), 
+                "weight": float(weight),
+                "stats": stats 
+            })
+
+    # 6. Calculate "Safe Target" (Min + Max) / 2
+    # Try to find Projected Min 68
+    min_s = safe_float_conversion(row.get('projected_min_score_68_from_67'))
+    if min_s is None:
+        min_s = safe_float_conversion(row.get('คะแนนต่ำสุด_67'))
+    
+    # Try to find Max 67 (Max usually doesn't change as drastically as Min)
+    max_s = safe_float_conversion(row.get('คะแนนสูงสุด_67'))
+    if max_s is None:
+        max_s = safe_float_conversion(row.get('max_score'))
+
+    # THE FORMULA: (Min + Max) / 2
+    target_score = 0
+    if min_s and max_s and max_s > min_s:
+        target_score = (min_s + max_s) / 2
+    elif min_s:
+        # If no Max exists, add 5% safety buffer to Min
+        target_score = min_s * 1.05 
+    
+    return {
+        "found": True, 
+        "subjects": subjects,
+        "t_score_enabled": t_score_enabled,
+        "min_score": float(target_score), # This is now the SAFE target
+        "real_min": float(min_s) if min_s else 0, # Send real min for reference
+        "max_score": float(max_s) if max_s else 0
+    }
+    
 # Include router
 app.include_router(router)
 if __name__ == "__main__":
