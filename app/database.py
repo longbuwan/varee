@@ -80,7 +80,7 @@ SCORE_COLUMNS = [
 
 # Numeric columns for university data that need conversion
 UNIVERSITY_NUMERIC_COLUMNS = [
-    "gpax_req", "projected_min_score", "คะแนนต่ำสุด_67", 
+    "gpax_req", "min_gpax", "projected_min_score", "คะแนนต่ำสุด_67", 
     "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", ""  # Removed "t_score"
 ] + SCORE_COLUMNS
 
@@ -204,47 +204,32 @@ def calculate_score_with_t_score(user_score: float, subject: str, stats_data: pd
 
 # ---- ENHANCED GPAX CHECKING FUNCTIONS ----
 def check_gpax_eligibility(user_gpax: float, program_gpax_req: float) -> Dict[str, Any]:
-    """Enhanced GPAX eligibility checking with detailed feedback"""
+    """Enhanced GPAX eligibility checking with strict 4.00 normalization"""
     user_gpax_safe = safe_float_conversion(user_gpax)
     program_gpax_safe = safe_float_conversion(program_gpax_req)
     
-    if user_gpax_safe is None:
-        return {
-            "eligible": False,
-            "reason": "missing_user_gpax",
-            "message": "User GPAX not available",
-            "user_gpax": None,
-            "required_gpax": program_gpax_safe
-        }
-    
-    if program_gpax_safe is None:
-        return {
-            "eligible": True,
-            "reason": "no_requirement",
-            "message": "No GPAX requirement for this program",
-            "user_gpax": user_gpax_safe,
-            "required_gpax": None
-        }
-    
-    if (user_gpax_safe/25) >= program_gpax_safe:
-        return {
-            "eligible": True,
-            "reason": "meets_requirement",
-            "message": f"GPAX requirement met ({user_gpax_safe} >= {program_gpax_safe})",
-            "user_gpax": user_gpax_safe/25,
-            "required_gpax": program_gpax_safe,
-            "gpax_buffer": user_gpax_safe - program_gpax_safe
-        }
+    # 1. ALWAYS convert user GPAX to a 4.00 scale immediately so the frontend never breaks
+    if user_gpax_safe is not None:
+        calc_gpax = (user_gpax_safe / 25) if user_gpax_safe > 4.0 else user_gpax_safe
     else:
-        return {
-            "eligible": False,
-            "reason": "insufficient_gpax",
-            "message": f"GPAX requirement not met ({user_gpax_safe} < {program_gpax_safe})",
-            "user_gpax": user_gpax_safe,
-            "required_gpax": program_gpax_safe,
-            "gpax_deficit": program_gpax_safe - user_gpax_safe
-        }
+        calc_gpax = None
+    
+    # 2. Handle missing User GPAX
+    if calc_gpax is None:
+        return {"eligible": False, "reason": "missing_user_gpax", "message": "ไม่พบข้อมูล GPAX ของคุณ", "user_gpax": None, "required_gpax": program_gpax_safe}
+    
+    # 3. Handle NO Requirement from University
+    if program_gpax_safe is None or program_gpax_safe <= 0:
+        return {"eligible": True, "reason": "no_requirement", "message": "ไม่มีข้อกำหนด GPAX", "user_gpax": calc_gpax, "required_gpax": None}
+    
+    # 4. Normalize University Requirement to 4.00 scale
+    req_gpax = program_gpax_safe / 25 if program_gpax_safe > 4.0 else program_gpax_safe
 
+    # 5. Compare the two
+    if calc_gpax >= req_gpax:
+        return {"eligible": True, "reason": "meets_requirement", "message": f"ผ่านเกณฑ์ ({calc_gpax:.2f} >= {req_gpax:.2f})", "user_gpax": calc_gpax, "required_gpax": req_gpax, "gpax_buffer": calc_gpax - req_gpax}
+    else:
+        return {"eligible": False, "reason": "insufficient_gpax", "message": f"ไม่ผ่านเกณฑ์ ({calc_gpax:.2f} < {req_gpax:.2f})", "user_gpax": calc_gpax, "required_gpax": req_gpax, "gpax_deficit": req_gpax - calc_gpax}
 def find_alternative_programs_by_gpax(user_data: Dict, target_universities: List[str] = None, max_alternatives: int = 10) -> List[Dict]:
     """Find alternative programs that match user's GPAX requirements"""
     load_and_cache_data()
@@ -264,7 +249,9 @@ def find_alternative_programs_by_gpax(user_data: Dict, target_universities: List
         university_df = university_df[university_df["university"].isin(target_universities)]
     
     for _, program in university_df.iterrows():
-        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        gpax_req = safe_float_conversion(program.get("min_gpax")) or safe_float_conversion(program.get("gpax_req"))
+        if gpax_req is None or gpax_req <= 0:
+            gpax_req = safe_float_conversion(program.get("min_gpax"))
         
         # Check if user meets GPAX requirement
         gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
@@ -330,7 +317,7 @@ def analyze_gpax_issues(user_data: Dict) -> Dict[str, Any]:
         if program is None:
             continue
         
-        gpax_req = safe_float_conversion(program.get("gpax_req"))
+        gpax_req = safe_float_conversion(program.get("min_gpax", program.get("gpax_req")))
         gpax_check = check_gpax_eligibility(gpax_analysis["user_gpax"], gpax_req)
         
         selection_analysis = {
@@ -1112,6 +1099,36 @@ async def get_alternative_programs(data: AlternativeProgramsRequest):
         print(f"Error finding alternatives: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find alternatives: {str(e)}")
 
+def check_subject_minimums(user_data: Dict, program: pd.Series) -> Dict[str, Any]:
+    """Check if the user meets the strict minimum subject requirements (e.g., min_a_lv_82 > 30)"""
+    failed_subjects = []
+    
+    for col in SCORE_COLUMNS:
+        min_raw = safe_float_conversion(program.get(f"min_{col}"))
+        min_tscore = safe_float_conversion(program.get(f"min_{col}_tscore"))
+        
+        if (min_raw and min_raw > 0) or (min_tscore and min_tscore > 0):
+            user_raw = safe_float_conversion(user_data.get(col))
+            user_t = safe_float_conversion(user_data.get(f"{col}_tscore"))
+            
+            # Check T-Score Minimums
+            if min_tscore and min_tscore > 0:
+                # If they didn't provide a manual T-score, calculate it from raw
+                actual_t = user_t if user_t else calculate_score_with_t_score(user_raw or 0, col, data_cache.statistics_data_df).get("t_score", 0)
+                if actual_t < min_tscore:
+                    failed_subjects.append({"subject": col, "type": "T-Score", "required": min_tscore, "actual": actual_t})
+            
+            # Check Raw Score Minimums
+            elif min_raw and min_raw > 0:
+                actual_raw = user_raw if user_raw else 0
+                if actual_raw < min_raw:
+                    failed_subjects.append({"subject": col, "type": "Raw", "required": min_raw, "actual": actual_raw})
+                    
+    return {
+        "eligible": len(failed_subjects) == 0,
+        "failed_subjects": failed_subjects
+    }
+
 @router.post("/api/calculate_scores")
 async def calculate_scores(data: dict):
     """Calculate scores for all user selections with enhanced GPAX checking and T-score support"""
@@ -1126,7 +1143,6 @@ async def calculate_scores(data: dict):
         
         results = []
         gpax_issues = []
-        
         # Check each of the 10 selections with enhanced GPAX checking
         for i in range(1, 11):
             university = user_data.get(f"selection_{i}_university")
@@ -1165,12 +1181,16 @@ async def calculate_scores(data: dict):
             selection_result["t_score_enabled"] = is_t_score_enabled(program)
             
             # Enhanced GPAX checking
-            gpax_req = safe_float_conversion(program.get("gpax_req"))
+            gpax_req = safe_float_conversion(program.get("min_gpax", program.get("gpax_req")))
             user_gpax = safe_float_conversion(user_data.get("gpax"))
             
             gpax_check = check_gpax_eligibility(user_gpax, gpax_req)
             selection_result["gpax_check"] = gpax_check
             
+            # Subject Minimum checking
+            subject_min_check = check_subject_minimums(user_data, program)
+            selection_result["subject_min_check"] = subject_min_check
+
             # Get projected minimum score
             score_p = safe_float_conversion(program.get("projected_min_score"))
             if score_p is None:
@@ -1178,6 +1198,8 @@ async def calculate_scores(data: dict):
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68"), 0)
             
+            # --- FAILURE CONDITIONS ---
+            # 1. Failed GPAX Requirement
             if not gpax_check["eligible"]:
                 selection_result["status"] = "gpax_insufficient"
                 selection_result["message"] = gpax_check["message"]
@@ -1191,13 +1213,21 @@ async def calculate_scores(data: dict):
                 selection_result["alternatives"] = alternatives
                 gpax_issues.append(selection_result)
                 
-                results.append(selection_result)
+                results.append(selection_result) # <--- THIS KEEPS IT ON SCREEN
                 continue
             
+            # 2. Failed Subject Minimum Requirement
+            if not subject_min_check["eligible"]:
+                failed_list = [f"{f['subject']} (Need {f['required']} {f['type']}, got {f['actual']:.2f})" for f in subject_min_check["failed_subjects"]]
+                selection_result["status"] = "subject_min_insufficient"
+                selection_result["message"] = "Failed minimum requirements: " + ", ".join(failed_list)
+                
+                results.append(selection_result) # <--- THIS KEEPS IT ON SCREEN
+                continue
+            
+            # --- SUCCESS CONDITION (Passed all checks) ---
             # Calculate score
-         
             score_result = calculate_program_score(user_data, program)
-           
             
             if score_result["success"]:
                 selection_result["status"] = "calculated"
@@ -1210,9 +1240,9 @@ async def calculate_scores(data: dict):
                 selection_result["status"] = "error"
                 selection_result["message"] = score_result["message"]
                 if score_result["error"] == "missing_scores":
-                    selection_result["missing_scores"] = score_result["missing_scores"]
-                    selection_result["missing_count"] = score_result["missing_count"]
-                    selection_result["total_required"] = score_result["total_required"]
+                    selection_result["missing_scores"] = score_result.get("missing_scores", [])
+                    selection_result["missing_count"] = score_result.get("missing_count", 0)
+                    selection_result["total_required"] = score_result.get("total_required", 0)
 
             results.append(selection_result)
         
@@ -1866,27 +1896,25 @@ def get_program_weights(query: ProgramQuery):
 
     # 6. Extract Regular Subjects & Stats
     for col in SCORE_COLUMNS:
-        if col in ["cal_subject_name", "cal_type", "cal_score_sum"] or col in special_subjects_set:
-            continue
-            
-        weight = safe_float_conversion(row.get(col))
+        if col in ["cal_subject_name", "cal_type", "cal_score_sum"] or col in special_subjects_set: continue
+        w = safe_float_conversion(row.get(col))
         
-        if weight is not None and weight > 0:
-            stats = None
-            if stats_df is not None and not stats_df.empty:
-                stat_row = stats_df[stats_df['subject'] == col]
-                if not stat_row.empty:
-                    stats = {
-                        "mean": safe_float_conversion(stat_row.iloc[0].get('m_68')),
-                        "sd": safe_float_conversion(stat_row.iloc[0].get('sd_68')),
-                        "multiplier": 9.86 if "tpat" in col or "tgat" in col else 6.11
-                    }
-
+        # --- NEW: Grab the minimum required scores for this specific subject ---
+        min_raw = safe_float_conversion(row.get(f"min_{col}"))
+        min_tscore = safe_float_conversion(row.get(f"min_{col}_tscore"))
+        
+        if w and w > 0:
+            st = get_subject_statistics(col, data_cache.statistics_data_df)
+            if st and st.get("mean"):
+                st["multiplier"] = Config.TGAT_TPAT_MULTIPLIER if "tpat" in col or "tgat" in col else Config.A_LEVEL_MULTIPLIER
+            
             subjects.append({
-                "subject": str(col), 
-                "weight": float(weight),
-                "is_special_sum": False,
-                "stats": stats 
+                "subject": col, 
+                "weight": w, 
+                "is_special_sum": False, 
+                "stats": st if st and st.get("mean") else None,
+                "min_required_raw": float(min_raw) if min_raw and min_raw > 0 else None,
+                "min_required_tscore": float(min_tscore) if min_tscore and min_tscore > 0 else None
             })
 
     # 7. Calculate "Safe Target" (Min + Max) / 2
