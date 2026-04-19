@@ -71,8 +71,8 @@ SCORE_COLUMNS = [
 
 # Numeric columns for university data that need conversion
 UNIVERSITY_NUMERIC_COLUMNS = [
-    "gpax_req", "projected_min_score_68_from_67", "คะแนนต่ำสุด_67", 
-    "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", "cal_score_sum"  # Removed "t_score"
+    "gpax_req", "projected_min_score", "คะแนนต่ำสุด_67", 
+    "คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68", ""  # Removed "t_score"
 ] + SCORE_COLUMNS
 
 # T-Score subject classification
@@ -266,7 +266,7 @@ def find_alternative_programs_by_gpax(user_data: Dict, target_universities: List
             
             if score_result["success"]:
                 # Get projected minimum score
-                score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+                score_p = safe_float_conversion(program.get("projected_min_score"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                     if score_p is None:
@@ -1181,7 +1181,7 @@ async def calculate_scores(data: dict):
             selection_result["gpax_check"] = gpax_check
             
             # Get projected minimum score
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            score_p = safe_float_conversion(program.get("projected_min_score"))
             if score_p is None:
                 score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                 if score_p is None:
@@ -1527,7 +1527,7 @@ async def get_user_scores(user_id: str):
             selection_result["gpax_check"] = gpax_check
             
             # Get projected minimum score
-            score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+            score_p = safe_float_conversion(program.get("projected_min_score"))
             if score_p is None:
                 score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                 if score_p is None:
@@ -1675,7 +1675,7 @@ async def find_new_programs(request: NewProgramRequest):
                 selection_result["gpax_check"] = gpax_check
                 
                 # Get projected minimum score
-                score_p = safe_float_conversion(program.get("projected_min_score_68_from_67"))
+                score_p = safe_float_conversion(program.get("projected_min_score"))
                 if score_p is None:
                     score_p = safe_float_conversion(program.get("คะแนนต่ำสุด_67"))
                     if score_p is None:
@@ -1761,7 +1761,6 @@ async def find_new_programs(request: NewProgramRequest):
         raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
 
 #For pre-exam
-#For pre-exam
 class ProgramQuery(BaseModel):
     university: str
     faculty: str
@@ -1793,22 +1792,90 @@ def get_program_weights(query: ProgramQuery):
     
     # 3. Check T-Score Status
     t_score_enabled = str(row.get("t_score", "")).strip().lower() == "true"
+    stats_df = data_cache.statistics_data_df
 
-    # 4. Extract GPAX
+    # 4. Handle Special Calculation Subjects First
+    cal_type = row.get("cal_type")
+    cal_subject_name = str(row.get("cal_subject_name")).strip()
+    cal_score_sum = safe_float_conversion(row.get("cal_score_sum"))
+    special_subjects_set = set()
+
+    if pd.notna(cal_type) and cal_subject_name and cal_subject_name.lower() != "nan" and cal_score_sum is not None:
+        options_raw = cal_subject_name.split("|")
+        
+        # If there's NO 'OR' condition, just append them as normal separate subjects
+        if len(options_raw) == 1:
+            path_subjects = options_raw[0].split()
+            split_weight = cal_score_sum / len(path_subjects) if path_subjects else 0
+            
+            for subj in path_subjects:
+                special_subjects_set.add(subj)
+                stats = None
+                if stats_df is not None and not stats_df.empty:
+                    stat_row = stats_df[stats_df['subject'] == subj]
+                    if not stat_row.empty:
+                        stats = {
+                            "mean": safe_float_conversion(stat_row.iloc[0].get('m_68')),
+                            "sd": safe_float_conversion(stat_row.iloc[0].get('sd_68')),
+                            "multiplier": 9.86 if "tpat" in subj or "tgat" in subj else 6.11
+                        }
+                subjects.append({
+                    "subject": subj,
+                    "weight": float(split_weight), # Individual divided weight
+                    "is_special_sum": False, 
+                    "stats": stats
+                })
+                
+        # If there IS an 'OR' condition, group them so the frontend knows it's a choice
+        else:
+            parsed_options = []
+            for opt in options_raw:
+                path_subjects = opt.split()
+                split_weight = cal_score_sum / len(path_subjects) if path_subjects else 0
+                path_details = []
+                
+                for subj in path_subjects:
+                    special_subjects_set.add(subj)
+                    stats = None
+                    if stats_df is not None and not stats_df.empty:
+                        stat_row = stats_df[stats_df['subject'] == subj]
+                        if not stat_row.empty:
+                            stats = {
+                                "mean": safe_float_conversion(stat_row.iloc[0].get('m_68')),
+                                "sd": safe_float_conversion(stat_row.iloc[0].get('sd_68')),
+                                "multiplier": 9.86 if "tpat" in subj or "tgat" in subj else 6.11
+                            }
+                    
+                    path_details.append({
+                        "subject": subj,
+                        "weight": float(split_weight), # Individual divided weight
+                        "stats": stats
+                    })
+                
+                parsed_options.append(path_details)
+            
+            subjects.append({
+                "subject": "Special Group (Choose 1 Path)", 
+                "weight": float(cal_score_sum), # Total weight for the whole block
+                "is_special_sum": True,
+                "options": parsed_options,
+                "stats": None
+            })
+
+    # 5. Extract GPAX
     gpax_req = safe_float_conversion(row.get('gpax_req'))
     if gpax_req and gpax_req > 0:
         subjects.append({
             "subject": "gpax", 
             "weight": 0, 
             "min": gpax_req,
+            "is_special_sum": False,
             "stats": None
         })
 
-    # 5. Extract Subjects & Stats
-    stats_df = data_cache.statistics_data_df
-    
+    # 6. Extract Regular Subjects & Stats
     for col in SCORE_COLUMNS:
-        if col in ["cal_subject_name", "cal_type", "cal_score_sum"]:
+        if col in ["cal_subject_name", "cal_type", "cal_score_sum"] or col in special_subjects_set:
             continue
             
         weight = safe_float_conversion(row.get(col))
@@ -1827,34 +1894,31 @@ def get_program_weights(query: ProgramQuery):
             subjects.append({
                 "subject": str(col), 
                 "weight": float(weight),
+                "is_special_sum": False,
                 "stats": stats 
             })
 
-    # 6. Calculate "Safe Target" (Min + Max) / 2
-    # Try to find Projected Min 68
-    min_s = safe_float_conversion(row.get('projected_min_score_68_from_67'))
+    # 7. Calculate "Safe Target" (Min + Max) / 2
+    min_s = safe_float_conversion(row.get('คะแนนต่ำสุด ประมวลผลครั้งที่ 1_68'))
     if min_s is None:
         min_s = safe_float_conversion(row.get('คะแนนต่ำสุด_67'))
     
-    # Try to find Max 67 (Max usually doesn't change as drastically as Min)
-    max_s = safe_float_conversion(row.get('คะแนนสูงสุด_67'))
+    max_s = safe_float_conversion(row.get('คะแนนสูงสุด ประมวลผลครั้งที่ 1_68'))
     if max_s is None:
-        max_s = safe_float_conversion(row.get('max_score'))
+        max_s = safe_float_conversion(row.get('คะแนนสูงสุด_67'))
 
-    # THE FORMULA: (Min + Max) / 2
     target_score = 0
     if min_s and max_s and max_s > min_s:
         target_score = (min_s + max_s) / 2
     elif min_s:
-        # If no Max exists, add 5% safety buffer to Min
         target_score = min_s * 1.05 
     
     return {
         "found": True, 
         "subjects": subjects,
         "t_score_enabled": t_score_enabled,
-        "min_score": float(target_score), # This is now the SAFE target
-        "real_min": float(min_s) if min_s else 0, # Send real min for reference
+        "min_score": float(target_score), 
+        "real_min": float(min_s) if min_s else 0,
         "max_score": float(max_s) if max_s else 0
     }
 @router.post("/api/get_all_universities")
