@@ -23,8 +23,8 @@ class Config:
     SHEET_ID = "1IFoQ9PJoralucmufWa11IZ0Njcyq_-Z8NjLmtEySMdY"
     
     # T-Score conversion constants
-    TGAT_TPAT_MULTIPLIER = 9.86
-    A_LEVEL_MULTIPLIER = 6.11
+    TGAT_TPAT_MULTIPLIER = 7.71919
+    A_LEVEL_MULTIPLIER = 6.42869
     T_SCORE_BASE = 50
 
 # ---- COLUMN DEFINITIONS ----
@@ -35,7 +35,11 @@ USER_COLUMNS = [
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
     "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
-    # Selection columns for 10 universities
+    "tgat1_tscore", "tgat2_tscore", "tgat3_tscore", "tpat11_tscore", "tpat12_tscore", "tpat13_tscore", 
+    "tpat21_tscore", "tpat22_tscore", "tpat23_tscore", "tpat3_tscore", "tpat4_tscore", "tpat5_tscore",
+    "a_lv_61_tscore", "a_lv_62_tscore", "a_lv_63_tscore", "a_lv_64_tscore", "a_lv_65_tscore", "a_lv_66_tscore", 
+    "a_lv_70_tscore", "a_lv_81_tscore", "a_lv_82_tscore", "a_lv_83_tscore", "a_lv_84_tscore", "a_lv_85_tscore", 
+    "a_lv_86_tscore", "a_lv_87_tscore", "a_lv_88_tscore", "a_lv_89_tscore",
     "selection_1_university", "selection_1_faculty", "selection_1_field",
     "selection_2_university", "selection_2_faculty", "selection_2_field",
     "selection_3_university", "selection_3_faculty", "selection_3_field",
@@ -54,7 +58,12 @@ NUMERIC_COLUMNS = {
     "a_lv_61", "a_lv_62", "a_lv_63", "a_lv_64", "a_lv_65", "a_lv_66",
     "a_lv_70", "a_lv_81", "a_lv_82", "a_lv_83", "a_lv_84", "a_lv_85",
     "a_lv_86", "a_lv_87", "a_lv_88", "a_lv_89", "gpa21", "gpa22", "gpa23", 
-    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28"
+    "gpa24", "gpa25", "gpa26", "gpa27", "gpa28",
+    "tgat1_tscore", "tgat2_tscore", "tgat3_tscore", "tpat11_tscore", "tpat12_tscore", "tpat13_tscore", 
+    "tpat21_tscore", "tpat22_tscore", "tpat23_tscore", "tpat3_tscore", "tpat4_tscore", "tpat5_tscore",
+    "a_lv_61_tscore", "a_lv_62_tscore", "a_lv_63_tscore", "a_lv_64_tscore", "a_lv_65_tscore", "a_lv_66_tscore", 
+    "a_lv_70_tscore", "a_lv_81_tscore", "a_lv_82_tscore", "a_lv_83_tscore", "a_lv_84_tscore", "a_lv_85_tscore", 
+    "a_lv_86_tscore", "a_lv_87_tscore", "a_lv_88_tscore", "a_lv_89_tscore"
 }
 
 # Updated score columns based on the CSV structure
@@ -424,10 +433,12 @@ def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[s
     
     for col in required_columns:
         user_score = user_data.get(col)
-        if user_score is None or pd.isna(user_score):
+        user_t_score = user_data.get(f"{col}_tscore")
+        
+        if (user_score is None or pd.isna(user_score)) and (user_t_score is None or pd.isna(user_t_score)):
             missing_scores.append(col)
         else:
-            available_scores[col] = float(user_score)
+            available_scores[col] = float(user_score) if user_score is not None else float(user_t_score)
     
     return {
         "is_valid": len(missing_scores) == 0,
@@ -436,7 +447,6 @@ def validate_user_scores(user_data: Dict, required_columns: List[str]) -> Dict[s
         "missing_count": len(missing_scores),
         "total_required": len(required_columns)
     }
-
 def get_required_score_columns(program: pd.Series) -> List[str]:
     """Get list of score columns required for this program"""
     required_columns = []
@@ -467,165 +477,118 @@ def is_t_score_enabled(program):
     return t_score_str 
 
 def calculate_program_score(user_data: Dict, program: pd.Series) -> Dict[str, Any]:
-    """Calculate score for a program with T-score conversion when enabled"""
+    """Calculate score for a program with manual T-score priority"""
     try:
-        # Get required columns for this program
         required_columns = get_required_score_columns(program)
-        
-        # Validate user scores
         validation = validate_user_scores(user_data, required_columns)
         
         if not validation["is_valid"]:
             return {
-                "success": False,
-                "error": "missing_scores",
-                "score": None,
+                "success": False, "error": "missing_scores", "score": None,
                 "missing_scores": validation["missing_scores"],
                 "missing_count": validation["missing_count"],
                 "total_required": validation["total_required"],
-                "message": f"Missing {validation['missing_count']} required scores: {', '.join(validation['missing_scores'])}"
+                "message": f"Missing required scores: {', '.join(validation['missing_scores'])}"
             }
-       
 
-        # Check if t-score conversion is enabled for this program
         use_t_score = is_t_score_enabled(program)
-        
         score = 0
         score_breakdown = []
+        special_evaluated_subjects = set()
         
-        # Check if this program has special calculation type
         cal_type = program.get("cal_type")
-        cal_subject_name = program.get("cal_subject_name")
+        cal_subject_name = str(program.get("cal_subject_name")).strip()
         cal_score_sum = safe_float_conversion(program.get("cal_score_sum"))
         
-        if pd.notna(cal_type) and pd.notna(cal_subject_name):
-            # Special calculation with subject selection
-            subject_specs = str(cal_subject_name).split()
-            best_subject_score = 0
-            best_subject = None
+        # 1. SPECIAL SUBJECTS
+        if pd.notna(cal_type) and cal_subject_name and cal_subject_name.lower() != "nan" and cal_score_sum is not None:
+            for s in cal_subject_name.replace('|', ' ').split():
+                special_evaluated_subjects.add(s.lower())
+                
+            options = cal_subject_name.split("|")
+            best_option_score = -1
+            best_option_breakdown = []
             
-            # Find the highest score among available subjects
-            for spec in subject_specs:
-                if "|" in spec:
-                    # Group of subjects - pick the highest
-                    subjects = spec.split("|")
-                    for subj in subjects:
-                        user_score = safe_float_conversion(user_data.get(subj))
-                        if user_score is not None:
-                            # Apply t-score conversion if enabled
-                            if use_t_score:
-                                t_score_result = calculate_score_with_t_score(user_score, subj, data_cache.statistics_data_df)
-                                final_score = t_score_result["t_score"]
+            for option_str in options:
+                subjects_in_path = option_str.split()
+                if len(subjects_in_path) > 0:
+                    split_weight = cal_score_sum / len(subjects_in_path)
+                    current_option_contribution = 0
+                    temp_breakdown = []
+                    
+                    for subj in subjects_in_path:
+                        user_raw_score = safe_float_conversion(user_data.get(subj))
+                        user_manual_tscore = safe_float_conversion(user_data.get(f"{subj}_tscore"))
+                        manual_used = False
+                        
+                        if use_t_score:
+                            if user_manual_tscore is not None and user_manual_tscore > 0:
+                                final_score = user_manual_tscore
+                                manual_used = True
                             else:
-                                final_score = user_score
+                                user_raw_score = user_raw_score if user_raw_score else 0
+                                t_res = calculate_score_with_t_score(user_raw_score, subj, data_cache.statistics_data_df)
+                                final_score = t_res.get("t_score", user_raw_score)
+                        else:
+                            final_score = user_raw_score if user_raw_score else 0
                             
-                            if final_score > best_subject_score:
-                                best_subject_score = final_score
-                                best_subject = subj
-                else:
-                    # Single subject
-                    user_score = safe_float_conversion(user_data.get(spec))
-                    if user_score is not None:
-                        # Apply t-score conversion if enabled
-                        if use_t_score:
-                            t_score_result = calculate_score_with_t_score(user_score, spec, data_cache.statistics_data_df)
-                            final_score = t_score_result["t_score"]
-                        else:
-                            final_score = user_score
+                        weight_percent = split_weight / 100
+                        contribution = final_score * weight_percent
+                        current_option_contribution += contribution
                         
-                        if final_score > best_subject_score:
-                            best_subject_score = final_score
-                            best_subject = spec
-            
-            # Add best subject score with its weight
-            if best_subject and cal_score_sum is not None:
-                weight = cal_score_sum / 100
-                contribution = best_subject_score * weight
-                score += contribution
-                score_breakdown.append({
-                    "subject": best_subject,
-                    "user_score": user_data.get(best_subject),
-                    "final_score": best_subject_score,
-                    "weight": weight,
-                    "contribution": contribution,
-                    "t_score_applied": use_t_score
-                })
-            
-            # Add other weighted scores (excluding special subjects)
-            for col in SCORE_COLUMNS:
-                if (col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and 
-                    col != best_subject):
-                    
-                    program_weight = safe_float_conversion(program.get(col))
-                    user_score = safe_float_conversion(user_data.get(col))
-                    
-                    if program_weight is not None and user_score is not None and program_weight > 0:
-                        # Apply t-score conversion if enabled
-                        if use_t_score:
-                            t_score_result = calculate_score_with_t_score(user_score, col, data_cache.statistics_data_df)
-                            final_score = t_score_result["t_score"]
-                        else:
-                            final_score = user_score
-                        
-                        weight = program_weight / 100
-                        contribution = final_score * weight
-                        score += contribution
-                        score_breakdown.append({
-                            "subject": col,
-                            "user_score": user_score,
-                            "final_score": final_score,
-                            "weight": weight,
-                            "contribution": contribution,
-                            "t_score_applied": use_t_score
+                        temp_breakdown.append({
+                            "subject": subj, "user_score": user_raw_score, "final_score": final_score,
+                            "weight": weight_percent, "contribution": contribution, "t_score_applied": use_t_score,
+                            "manual_t_score_used": manual_used, "is_part_of_special_group": True
                         })
-        else:
-            # Regular calculation
-            for col in SCORE_COLUMNS:
-                if col not in ["cal_subject_name", "cal_type", "cal_score_sum"]:
-                    program_weight = safe_float_conversion(program.get(col))
-                    user_score = safe_float_conversion(user_data.get(col))
                     
-                    if program_weight is not None and user_score is not None and program_weight > 0:
-                        # Apply t-score conversion if enabled
-                        if use_t_score:
-                            t_score_result = calculate_score_with_t_score(user_score, col, data_cache.statistics_data_df)
-                            final_score = t_score_result["t_score"]
-                        else:
-                            final_score = user_score
+                    if current_option_contribution > best_option_score:
+                        best_option_score = current_option_contribution
+                        best_option_breakdown = temp_breakdown
                         
-                        weight = program_weight / 100
-                        contribution = final_score * weight
-                        score += contribution
-                        score_breakdown.append({
-                            "subject": col,
-                            "user_score": user_score,
-                            "final_score": final_score,
-                            "weight": weight,
-                            "contribution": contribution,
-                            "t_score_applied": use_t_score
-                        })
+            if best_option_score >= 0:
+                score += best_option_score
+                score_breakdown.extend(best_option_breakdown)
+
+        # 2. REGULAR SUBJECTS
+        for col in SCORE_COLUMNS:
+            if col not in ["cal_subject_name", "cal_type", "cal_score_sum"] and col.lower() not in special_evaluated_subjects:
+                program_weight = safe_float_conversion(program.get(col))
+                
+                if program_weight is not None and program_weight > 0:
+                    user_raw_score = safe_float_conversion(user_data.get(col))
+                    user_manual_tscore = safe_float_conversion(user_data.get(f"{col}_tscore"))
+                    if user_raw_score is None and user_manual_tscore is None: continue
+                    
+                    manual_used = False
+                    if use_t_score:
+                        if user_manual_tscore is not None and user_manual_tscore > 0:
+                            final_score = user_manual_tscore
+                            manual_used = True
+                        else:
+                            user_raw_score = user_raw_score if user_raw_score else 0
+                            t_res = calculate_score_with_t_score(user_raw_score, col, data_cache.statistics_data_df)
+                            final_score = t_res.get("t_score", user_raw_score)
+                    else:
+                        final_score = user_raw_score if user_raw_score else 0
+                    
+                    weight = program_weight / 100
+                    contribution = final_score * weight
+                    score += contribution
+                    
+                    score_breakdown.append({
+                        "subject": col, "user_score": user_raw_score, "final_score": final_score,
+                        "weight": weight, "contribution": contribution, "t_score_applied": use_t_score,
+                        "manual_t_score_used": manual_used, "is_part_of_special_group": False
+                    })
         
         return {
-            "success": True,
-            "score": round(score, 2),
-            "score_breakdown": score_breakdown,
-            "t_score_enabled": use_t_score,
-            "program_info": {
-                "id": program.get("id"),
-                "name": program.get("program"),
-                "university": program.get("university"),
-                "faculty": program.get("faculty")
-            },
-            "message": f"Score calculated successfully: {round(score, 2)}" + (" (with T-score conversion)" if use_t_score else "")
+            "success": True, "score": round(score, 4), "score_breakdown": score_breakdown,
+            "t_score_enabled": use_t_score, "message": f"Success: {round(score, 4)}",
+            "program_info": {"id": program.get("id"), "name": program.get("program"), "university": program.get("university"), "faculty": program.get("faculty")}
         }
-        
     except Exception as e:
-        return {
-            "success": False,
-            "error": "calculation_error",
-            "score": None,
-            "message": f"Error calculating score: {str(e)}"
-        }
+        return {"success": False, "error": "calculation_error", "score": None, "message": str(e)}
 
 # ---- ENHANCED DATA LOADING FUNCTIONS ----
 def load_and_cache_data():
@@ -827,6 +790,34 @@ class ScoreSubmission(BaseModel):
     gpa26: Optional[float] = None
     gpa27: Optional[float] = None
     gpa28: Optional[float] = None
+    tgat1_tscore: Optional[float] = None
+    tgat2_tscore: Optional[float] = None
+    tgat3_tscore: Optional[float] = None
+    tpat11_tscore: Optional[float] = None
+    tpat12_tscore: Optional[float] = None
+    tpat13_tscore: Optional[float] = None
+    tpat21_tscore: Optional[float] = None
+    tpat22_tscore: Optional[float] = None
+    tpat23_tscore: Optional[float] = None
+    tpat3_tscore: Optional[float] = None
+    tpat4_tscore: Optional[float] = None
+    tpat5_tscore: Optional[float] = None
+    a_lv_61_tscore: Optional[float] = None
+    a_lv_62_tscore: Optional[float] = None
+    a_lv_63_tscore: Optional[float] = None
+    a_lv_64_tscore: Optional[float] = None
+    a_lv_65_tscore: Optional[float] = None
+    a_lv_66_tscore: Optional[float] = None
+    a_lv_70_tscore: Optional[float] = None
+    a_lv_81_tscore: Optional[float] = None
+    a_lv_82_tscore: Optional[float] = None
+    a_lv_83_tscore: Optional[float] = None
+    a_lv_84_tscore: Optional[float] = None
+    a_lv_85_tscore: Optional[float] = None
+    a_lv_86_tscore: Optional[float] = None
+    a_lv_87_tscore: Optional[float] = None
+    a_lv_88_tscore: Optional[float] = None
+    a_lv_89_tscore: Optional[float] = None
 
 class UniversitySelection(BaseModel):
     university: str
