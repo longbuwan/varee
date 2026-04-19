@@ -1759,7 +1759,8 @@ async def find_new_programs(request: NewProgramRequest):
     except Exception as e:
         print(f"Error finding new programs: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to find new programs: {str(e)}")
-        
+
+#For pre-exam
 #For pre-exam
 class ProgramQuery(BaseModel):
     university: str
@@ -1856,16 +1857,49 @@ def get_program_weights(query: ProgramQuery):
         "real_min": float(min_s) if min_s else 0, # Send real min for reference
         "max_score": float(max_s) if max_s else 0
     }
-    
+@router.post("/api/get_all_universities")
+def get_all_universities(data: dict = {}):
+    """
+    Returns a sorted list of all unique universities in the database.
+    """
+    try:
+        # 1. Ensure data is loaded from Google Sheets
+        load_and_cache_data()
+        
+        df = data_cache.university_data_df
+        
+        # 2. Check if database is empty
+        if df is None or df.empty:
+            return {"universities": []}
+            
+        # 3. Extract unique university names, remove empty/null values, and sort alphabetically
+        universities = sorted([
+            str(u).strip() for u in df['university'].unique().tolist() 
+            if u and str(u).strip() != "" and str(u).lower() != "nan"
+        ])
+        
+        return {"universities": universities}
+
+    except Exception as e:
+        print(f"Error fetching university list: {e}")
+        return {"universities": []}
 # Include router
 app.include_router(router)
+
 if __name__ == "__main__":
     import uvicorn
+    # Use logic to handle SSL if files exist, else HTTP
+    ssl_config = {}
+    if os.path.exists("ssl/server-key.pem") and os.path.exists("ssl/server.pem"):
+        ssl_config = {
+            "ssl_keyfile": "ssl/server-key.pem",
+            "ssl_certfile": "ssl/server.pem"
+        }
+    
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=8000,
-        ssl_keyfile="ssl/server-key.pem",      # Path to private key
-        ssl_certfile="ssl/server.pem"     # Path to certificate
+        **ssl_config
     )
 
